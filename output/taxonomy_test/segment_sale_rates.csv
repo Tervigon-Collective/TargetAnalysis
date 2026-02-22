@@ -1,0 +1,128 @@
+segment_key,source,sale_rate,sale_pct
+accessory | canvas_cotton | Entry,target,1.0,100.0
+accessory | canvas_cotton | Mid,target,0.0,0.0
+accessory | leather | Entry,target,0.2,20.0
+accessory | leather | Mid,target,0.7142857142857143,71.42857142857143
+accessory | leather | Mid+,target,1.0,100.0
+accessory | leather | Premium,target,1.0,100.0
+accessory | leather | Upper Mid,target,1.0,100.0
+accessory | nylon | Entry,target,0.5,50.0
+accessory | nylon | Mid,target,0.5,50.0
+accessory | nylon | Premium,target,1.0,100.0
+accessory | recycled | Entry,target,1.0,100.0
+accessory | recycled | Mid+,target,0.3333333333333333,33.33333333333333
+accessory | unknown | Entry,target,0.4666666666666667,46.666666666666664
+accessory | unknown | Mid,target,0.6666666666666666,66.66666666666666
+accessory | unknown | Mid+,target,1.0,100.0
+accessory | unknown | Upper Mid,target,1.0,100.0
+accessory | vegan_leather | Entry,target,1.0,100.0
+accessory | vegan_leather | Mid,target,1.0,100.0
+accessory | vegan_leather | Mid+,target,0.5,50.0
+bucket | canvas_cotton | Mid+,target,1.0,100.0
+bucket | leather | Mid,target,1.0,100.0
+bucket | leather | Mid+,target,1.0,100.0
+bucket | leather | Premium,target,1.0,100.0
+bucket | leather | Upper Mid,target,1.0,100.0
+bucket | recycled | Mid+,target,1.0,100.0
+bucket | unknown | Mid,target,1.0,100.0
+bucket | vegan_leather | Mid,target,1.0,100.0
+bucket | vegan_leather | Mid+,target,0.0,0.0
+bucket | vegan_leather | Upper Mid,target,1.0,100.0
+clutch | leather | Mid,target,0.8947368421052632,89.47368421052632
+clutch | leather | Mid+,target,1.0,100.0
+clutch | leather | Upper Mid,target,1.0,100.0
+clutch | nylon | Mid,target,1.0,100.0
+clutch | recycled | Entry,target,1.0,100.0
+clutch | recycled | Mid,target,0.8,80.0
+clutch | recycled | Mid+,target,1.0,100.0
+clutch | straw | Mid,target,1.0,100.0
+clutch | unknown | Entry,target,0.8,80.0
+clutch | unknown | Mid,target,0.8636363636363636,86.36363636363636
+clutch | unknown | Mid+,target,1.0,100.0
+clutch | vegan_leather | Entry,target,0.5,50.0
+clutch | vegan_leather | Mid,target,0.75,75.0
+clutch | vegan_leather | Mid+,target,1.0,100.0
+crossbody | canvas_cotton | Entry,target,0.0,0.0
+crossbody | canvas_cotton | Mid,target,1.0,100.0
+crossbody | leather | Entry,target,0.5,50.0
+crossbody | leather | Mid,target,0.8285714285714286,82.85714285714286
+crossbody | leather | Mid+,target,0.9090909090909091,90.9090909090909
+crossbody | leather | Premium,target,0.75,75.0
+crossbody | leather | Upper Mid,target,1.0,100.0
+crossbody | nylon | Entry,target,0.0,0.0
+crossbody | nylon | Mid,target,0.875,87.5
+crossbody | nylon | Mid+,target,1.0,100.0
+crossbody | nylon | Upper Mid,target,1.0,100.0
+crossbody | recycled | Entry,target,1.0,100.0
+crossbody | recycled | Mid,target,1.0,100.0
+crossbody | recycled | Mid+,target,0.6666666666666666,66.66666666666666
+crossbody | straw | Mid,target,0.5,50.0
+crossbody | unknown | Entry,target,0.8571428571428571,85.71428571428571
+crossbody | unknown | Mid,target,0.6428571428571429,64.28571428571429
+crossbody | unknown | Mid+,target,1.0,100.0
+crossbody | unknown | Upper Mid,target,1.0,100.0
+crossbody | vegan_leather | Entry,target,1.0,100.0
+crossbody | vegan_leather | Mid,target,0.9629629629629629,96.29629629629629
+crossbody | vegan_leather | Mid+,target,0.9166666666666666,91.66666666666666
+crossbody | vegan_leather | Premium,target,1.0,100.0
+crossbody | vegan_leather | Upper Mid,target,1.0,100.0
+messenger | unknown | Mid,target,1.0,100.0
+mini | unknown | Entry,target,0.25,25.0
+mini | unknown | Mid,target,0.5,50.0
+other | canvas_cotton | Entry,target,0.6666666666666666,66.66666666666666
+other | canvas_cotton | Mid,target,0.0,0.0
+other | leather | Mid,target,0.0,0.0
+other | leather | Upper Mid,target,1.0,100.0
+other | nylon | Mid,target,0.0,0.0
+other | recycled | Entry,target,0.3333333333333333,33.33333333333333
+other | unknown | Entry,target,0.5,50.0
+other | unknown | Mid,target,0.0,0.0
+other | vegan_leather | Entry,target,1.0,100.0
+other | vegan_leather | Mid,target,1.0,100.0
+satchel | canvas_cotton | Mid,target,1.0,100.0
+satchel | leather | Mid,target,1.0,100.0
+satchel | leather | Mid+,target,0.7272727272727273,72.72727272727273
+satchel | leather | Premium,target,1.0,100.0
+satchel | leather | Upper Mid,target,1.0,100.0
+satchel | recycled | Mid,target,1.0,100.0
+satchel | unknown | Entry,target,1.0,100.0
+satchel | unknown | Mid,target,1.0,100.0
+satchel | unknown | Mid+,target,0.0,0.0
+satchel | unknown | Upper Mid,target,1.0,100.0
+satchel | vegan_leather | Mid,target,1.0,100.0
+satchel | vegan_leather | Mid+,target,0.6666666666666666,66.66666666666666
+satchel | vegan_leather | Premium,target,1.0,100.0
+satchel | vegan_leather | Upper Mid,target,1.0,100.0
+shoulder | canvas_cotton | Entry,target,1.0,100.0
+shoulder | leather | Mid,target,0.8,80.0
+shoulder | leather | Mid+,target,1.0,100.0
+shoulder | leather | Premium,target,1.0,100.0
+shoulder | nylon | Mid+,target,1.0,100.0
+shoulder | recycled | Entry,target,0.0,0.0
+shoulder | recycled | Mid,target,0.3333333333333333,33.33333333333333
+shoulder | unknown | Entry,target,0.6666666666666666,66.66666666666666
+shoulder | unknown | Mid,target,0.3333333333333333,33.33333333333333
+shoulder | vegan_leather | Mid,target,1.0,100.0
+shoulder | vegan_leather | Mid+,target,1.0,100.0
+shoulder | vegan_leather | Upper Mid,target,1.0,100.0
+tote | canvas_cotton | Entry,target,1.0,100.0
+tote | canvas_cotton | Mid,target,0.6666666666666666,66.66666666666666
+tote | leather | Mid,target,0.8888888888888888,88.88888888888889
+tote | leather | Mid+,target,1.0,100.0
+tote | leather | Premium,target,0.9090909090909091,90.9090909090909
+tote | leather | Upper Mid,target,1.0,100.0
+tote | nylon | Entry,target,0.0,0.0
+tote | nylon | Mid,target,1.0,100.0
+tote | nylon | Mid+,target,0.5,50.0
+tote | recycled | Entry,target,0.0,0.0
+tote | recycled | Mid,target,0.5,50.0
+tote | straw | Mid,target,0.0,0.0
+tote | unknown | Entry,target,0.75,75.0
+tote | unknown | Mid,target,0.75,75.0
+tote | unknown | Mid+,target,1.0,100.0
+tote | unknown | Upper Mid,target,1.0,100.0
+tote | vegan_leather | Entry,target,1.0,100.0
+tote | vegan_leather | Mid,target,1.0,100.0
+tote | vegan_leather | Mid+,target,0.8888888888888888,88.88888888888889
+tote | vegan_leather | Premium,target,1.0,100.0
+weekender | nylon | Mid,target,0.0,0.0

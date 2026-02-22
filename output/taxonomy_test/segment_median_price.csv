@@ -1,0 +1,128 @@
+segment_key,target
+accessory | canvas_cotton | Entry,16.37
+accessory | canvas_cotton | Mid,39.99
+accessory | leather | Entry,23.99
+accessory | leather | Mid,47.99
+accessory | leather | Mid+,62.99
+accessory | leather | Premium,132.5
+accessory | leather | Upper Mid,110.495
+accessory | nylon | Entry,12.49
+accessory | nylon | Mid,40.49
+accessory | nylon | Premium,174.97
+accessory | recycled | Entry,20.99
+accessory | recycled | Mid+,60.0
+accessory | unknown | Entry,8.99
+accessory | unknown | Mid,38.745000000000005
+accessory | unknown | Mid+,66.245
+accessory | unknown | Upper Mid,111.18
+accessory | vegan_leather | Entry,28.44
+accessory | vegan_leather | Mid,35.965
+accessory | vegan_leather | Mid+,65.0
+bucket | canvas_cotton | Mid+,81.99
+bucket | leather | Mid,53.99
+bucket | leather | Mid+,70.99
+bucket | leather | Premium,149.97
+bucket | leather | Upper Mid,119.97
+bucket | recycled | Mid+,62.99
+bucket | unknown | Mid,41.99
+bucket | vegan_leather | Mid,56.99
+bucket | vegan_leather | Mid+,69.99
+bucket | vegan_leather | Upper Mid,107.97
+clutch | leather | Mid,45.99
+clutch | leather | Mid+,77.97
+clutch | leather | Upper Mid,97.78
+clutch | nylon | Mid,51.99
+clutch | recycled | Entry,29.99
+clutch | recycled | Mid,35.99
+clutch | recycled | Mid+,62.99
+clutch | straw | Mid,45.99
+clutch | unknown | Entry,23.99
+clutch | unknown | Mid,39.995000000000005
+clutch | unknown | Mid+,74.97
+clutch | vegan_leather | Entry,27.494999999999997
+clutch | vegan_leather | Mid,55.790000000000006
+clutch | vegan_leather | Mid+,75.84
+crossbody | canvas_cotton | Entry,19.99
+crossbody | canvas_cotton | Mid,51.99
+crossbody | leather | Entry,17.994999999999997
+crossbody | leather | Mid,47.99
+crossbody | leather | Mid+,70.99
+crossbody | leather | Premium,164.385
+crossbody | leather | Upper Mid,95.97
+crossbody | nylon | Entry,14.99
+crossbody | nylon | Mid,47.49
+crossbody | nylon | Mid+,75.0
+crossbody | nylon | Upper Mid,110.0
+crossbody | recycled | Entry,27.99
+crossbody | recycled | Mid,40.49
+crossbody | recycled | Mid+,80.0
+crossbody | straw | Mid,38.995000000000005
+crossbody | unknown | Entry,16.79
+crossbody | unknown | Mid,38.99
+crossbody | unknown | Mid+,75.0
+crossbody | unknown | Upper Mid,100.0
+crossbody | vegan_leather | Entry,29.494999999999997
+crossbody | vegan_leather | Mid,47.99
+crossbody | vegan_leather | Mid+,69.97999999999999
+crossbody | vegan_leather | Premium,128.67
+crossbody | vegan_leather | Upper Mid,96.285
+messenger | unknown | Mid,30.99
+mini | unknown | Entry,14.99
+mini | unknown | Mid,33.495000000000005
+other | canvas_cotton | Entry,25.99
+other | canvas_cotton | Mid,44.0
+other | leather | Mid,49.14
+other | leather | Upper Mid,119.34
+other | nylon | Mid,31.99
+other | recycled | Entry,12.0
+other | unknown | Entry,21.47
+other | unknown | Mid,37.05
+other | vegan_leather | Entry,25.94
+other | vegan_leather | Mid,44.955
+satchel | canvas_cotton | Mid,59.99
+satchel | leather | Mid,46.99
+satchel | leather | Mid+,71.97
+satchel | leather | Premium,149.97
+satchel | leather | Upper Mid,95.935
+satchel | recycled | Mid,57.99
+satchel | unknown | Entry,29.99
+satchel | unknown | Mid,59.99
+satchel | unknown | Mid+,66.0
+satchel | unknown | Upper Mid,90.78
+satchel | vegan_leather | Mid,59.99
+satchel | vegan_leather | Mid+,83.97
+satchel | vegan_leather | Premium,149.97
+satchel | vegan_leather | Upper Mid,116.97
+shoulder | canvas_cotton | Entry,28.99
+shoulder | leather | Mid,42.99
+shoulder | leather | Mid+,74.97
+shoulder | leather | Premium,149.97
+shoulder | nylon | Mid+,76.99
+shoulder | recycled | Entry,25.0
+shoulder | recycled | Mid,30.0
+shoulder | unknown | Entry,25.49
+shoulder | unknown | Mid,40.0
+shoulder | vegan_leather | Mid,48.995000000000005
+shoulder | vegan_leather | Mid+,63.99
+shoulder | vegan_leather | Upper Mid,118.99
+tote | canvas_cotton | Entry,29.39
+tote | canvas_cotton | Mid,45.99
+tote | leather | Mid,49.99
+tote | leather | Mid+,77.49
+tote | leather | Premium,158.97
+tote | leather | Upper Mid,98.97
+tote | nylon | Entry,15.99
+tote | nylon | Mid,52.49
+tote | nylon | Mid+,68.49
+tote | recycled | Entry,18.0
+tote | recycled | Mid,40.995000000000005
+tote | straw | Mid,37.5
+tote | unknown | Entry,25.744999999999997
+tote | unknown | Mid,45.49
+tote | unknown | Mid+,69.495
+tote | unknown | Upper Mid,95.88
+tote | vegan_leather | Entry,28.66
+tote | vegan_leather | Mid,53.99
+tote | vegan_leather | Mid+,75.99
+tote | vegan_leather | Premium,126.99
+weekender | nylon | Mid,40.0

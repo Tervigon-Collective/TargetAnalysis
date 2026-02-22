@@ -25,6 +25,13 @@ try:
 except ImportError:
     pass
 
+# Import normalize_row from sibling script
+try:
+    from normalize_dataset import normalize_row
+except ImportError:
+    sys.path.insert(0, str(SCRIPT_DIR))
+    from normalize_dataset import normalize_row
+
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -62,7 +69,8 @@ except ImportError:
             return products
         if suffix == ".csv":
             import csv
-            with open(path, encoding="utf-8", newline="") as f:
+            # utf-8-sig strips the BOM (\ufeff) that Excel/Windows adds to CSV files
+            with open(path, encoding="utf-8-sig", newline="") as f:
                 reader = csv.DictReader(f)
                 return list(reader)
         raise ValueError(f"Unsupported format: {suffix}. Use .json, .jsonl, or .csv")
@@ -78,14 +86,16 @@ def safe_str(v: object) -> str:
 
 
 def build_document_text(product: dict) -> str:
-    """Build a single searchable string per product for CLIP (truncated)."""
+    """Build a single searchable string per product for CLIP (truncated).
+    Expects a record already normalized to the canonical schema.
+    """
     parts = []
-    for key in ("title", "brand", "description", "material_text", "highlights", "feature_bullets"):
+    for key in ("name", "brand", "description", "material_text", "product_details"):
         raw = product.get(key)
         if not raw:
             continue
         s = safe_str(raw)
-        if key in ("highlights", "feature_bullets") and "|" in s:
+        if "|" in s:
             s = s.replace("|", " ")
         if s:
             parts.append(s)
@@ -96,16 +106,27 @@ def build_document_text(product: dict) -> str:
 
 
 def build_metadata(product: dict) -> dict:
-    """Build flat metadata for Chroma (scalar values only)."""
+    """Build flat metadata for Chroma (scalar values only).
+    Expects a record already normalized to the canonical schema.
+    """
     meta = {}
     for key in (
         "product_id",
-        "title",
-        "url",
+        "name",
+        "product_url",
         "brand",
         "price_current",
+        "price_original",
+        "price_currency",
         "category_breadcrumb",
-        "in_stock",
+        "availability_text",
+        "average_rating",
+        "review_count",
+        "is_sale",
+        "new_arrival_flag",
+        "best_seller_flag",
+        "material_text",
+        "sku",
     ):
         v = product.get(key)
         if v is None or v == "":
@@ -123,8 +144,13 @@ def build_metadata(product: dict) -> dict:
 
 
 def _first_image_url(product: dict) -> str | None:
-    """Return the first image URL from product['images'] (pipe-separated), or None."""
-    raw = product.get("images")
+    """Return the first image URL from canonical image_url or images_list field."""
+    # Prefer pre-extracted image_url (canonical schema)
+    direct = safe_str(product.get("image_url"))
+    if direct and direct.startswith("http"):
+        return direct
+    # Fall back to parsing images_list (pipe-separated)
+    raw = product.get("images_list") or product.get("images")
     if not raw:
         return None
     s = safe_str(raw)
@@ -135,14 +161,19 @@ def _first_image_url(product: dict) -> str | None:
 
 
 def prepare_records(products: list[dict]) -> tuple[list[str], list[str], list[dict], list[str | None], list[str]]:
-    """Return (ids, documents, metadatas, first_image_urls, skipped_reasons). Deduplicates by product_id (keeps first)."""
+    """Normalize each product to canonical schema, then build Chroma records.
+    Returns (ids, documents, metadatas, first_image_urls, skipped_reasons).
+    Deduplicates by product_id (keeps first).
+    """
     ids = []
     documents = []
     metadatas = []
     first_image_urls: list[str | None] = []
     skipped = []
     seen_ids: set[str] = set()
-    for p in products:
+    for raw in products:
+        # ── Normalize to canonical schema first ──────────────────────────
+        p = normalize_row(raw)
         pid = safe_str(p.get("product_id"))
         if not pid:
             skipped.append("missing product_id")

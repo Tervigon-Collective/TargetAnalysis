@@ -1,0 +1,128 @@
+segment_key,target,gap,total,target_pct,gap_pct,median_price_gap,opportunity_score
+accessory | canvas_cotton | Entry,2,0,2,100.0,0.0,0,0.0
+satchel | canvas_cotton | Mid,1,0,1,100.0,0.0,0,0.0
+satchel | vegan_leather | Upper Mid,1,0,1,100.0,0.0,0,0.0
+satchel | vegan_leather | Premium,1,0,1,100.0,0.0,0,0.0
+satchel | vegan_leather | Mid+,3,0,3,100.0,0.0,0,0.0
+satchel | vegan_leather | Mid,1,0,1,100.0,0.0,0,0.0
+satchel | unknown | Upper Mid,1,0,1,100.0,0.0,0,0.0
+satchel | unknown | Mid+,1,0,1,100.0,0.0,0,0.0
+satchel | unknown | Mid,1,0,1,100.0,0.0,0,0.0
+satchel | unknown | Entry,1,0,1,100.0,0.0,0,0.0
+satchel | recycled | Mid,1,0,1,100.0,0.0,0,0.0
+satchel | leather | Upper Mid,2,0,2,100.0,0.0,0,0.0
+satchel | leather | Premium,1,0,1,100.0,0.0,0,0.0
+satchel | leather | Mid+,11,0,11,100.0,0.0,0,0.0
+satchel | leather | Mid,3,0,3,100.0,0.0,0,0.0
+other | vegan_leather | Mid,2,0,2,100.0,0.0,0,0.0
+shoulder | leather | Mid,5,0,5,100.0,0.0,0,0.0
+other | vegan_leather | Entry,1,0,1,100.0,0.0,0,0.0
+other | unknown | Mid,1,0,1,100.0,0.0,0,0.0
+other | unknown | Entry,2,0,2,100.0,0.0,0,0.0
+other | recycled | Entry,3,0,3,100.0,0.0,0,0.0
+other | nylon | Mid,1,0,1,100.0,0.0,0,0.0
+other | leather | Upper Mid,1,0,1,100.0,0.0,0,0.0
+other | leather | Mid,1,0,1,100.0,0.0,0,0.0
+other | canvas_cotton | Mid,1,0,1,100.0,0.0,0,0.0
+other | canvas_cotton | Entry,6,0,6,100.0,0.0,0,0.0
+mini | unknown | Mid,2,0,2,100.0,0.0,0,0.0
+mini | unknown | Entry,4,0,4,100.0,0.0,0,0.0
+messenger | unknown | Mid,1,0,1,100.0,0.0,0,0.0
+crossbody | vegan_leather | Upper Mid,2,0,2,100.0,0.0,0,0.0
+shoulder | canvas_cotton | Entry,1,0,1,100.0,0.0,0,0.0
+shoulder | leather | Mid+,9,0,9,100.0,0.0,0,0.0
+crossbody | vegan_leather | Mid+,12,0,12,100.0,0.0,0,0.0
+tote | nylon | Entry,1,0,1,100.0,0.0,0,0.0
+tote | vegan_leather | Premium,1,0,1,100.0,0.0,0,0.0
+tote | vegan_leather | Mid+,9,0,9,100.0,0.0,0,0.0
+tote | vegan_leather | Mid,3,0,3,100.0,0.0,0,0.0
+tote | vegan_leather | Entry,1,0,1,100.0,0.0,0,0.0
+tote | unknown | Upper Mid,1,0,1,100.0,0.0,0,0.0
+tote | unknown | Mid+,2,0,2,100.0,0.0,0,0.0
+tote | unknown | Mid,4,0,4,100.0,0.0,0,0.0
+tote | unknown | Entry,8,0,8,100.0,0.0,0,0.0
+tote | straw | Mid,2,0,2,100.0,0.0,0,0.0
+tote | recycled | Mid,2,0,2,100.0,0.0,0,0.0
+tote | recycled | Entry,1,0,1,100.0,0.0,0,0.0
+tote | nylon | Mid+,2,0,2,100.0,0.0,0,0.0
+tote | nylon | Mid,5,0,5,100.0,0.0,0,0.0
+tote | leather | Upper Mid,3,0,3,100.0,0.0,0,0.0
+shoulder | leather | Premium,1,0,1,100.0,0.0,0,0.0
+tote | leather | Premium,11,0,11,100.0,0.0,0,0.0
+tote | leather | Mid+,18,0,18,100.0,0.0,0,0.0
+tote | leather | Mid,9,0,9,100.0,0.0,0,0.0
+tote | canvas_cotton | Mid,3,0,3,100.0,0.0,0,0.0
+tote | canvas_cotton | Entry,1,0,1,100.0,0.0,0,0.0
+shoulder | vegan_leather | Upper Mid,1,0,1,100.0,0.0,0,0.0
+shoulder | vegan_leather | Mid+,1,0,1,100.0,0.0,0,0.0
+shoulder | vegan_leather | Mid,4,0,4,100.0,0.0,0,0.0
+shoulder | unknown | Mid,3,0,3,100.0,0.0,0,0.0
+shoulder | unknown | Entry,3,0,3,100.0,0.0,0,0.0
+shoulder | recycled | Mid,3,0,3,100.0,0.0,0,0.0
+shoulder | recycled | Entry,1,0,1,100.0,0.0,0,0.0
+shoulder | nylon | Mid+,3,0,3,100.0,0.0,0,0.0
+crossbody | vegan_leather | Premium,1,0,1,100.0,0.0,0,0.0
+crossbody | vegan_leather | Mid,27,0,27,100.0,0.0,0,0.0
+accessory | canvas_cotton | Mid,1,0,1,100.0,0.0,0,0.0
+accessory | vegan_leather | Entry,2,0,2,100.0,0.0,0,0.0
+clutch | leather | Mid,19,0,19,100.0,0.0,0,0.0
+bucket | vegan_leather | Upper Mid,1,0,1,100.0,0.0,0,0.0
+bucket | vegan_leather | Mid+,1,0,1,100.0,0.0,0,0.0
+bucket | vegan_leather | Mid,1,0,1,100.0,0.0,0,0.0
+bucket | unknown | Mid,1,0,1,100.0,0.0,0,0.0
+bucket | recycled | Mid+,1,0,1,100.0,0.0,0,0.0
+bucket | leather | Upper Mid,1,0,1,100.0,0.0,0,0.0
+bucket | leather | Premium,1,0,1,100.0,0.0,0,0.0
+bucket | leather | Mid+,1,0,1,100.0,0.0,0,0.0
+bucket | leather | Mid,1,0,1,100.0,0.0,0,0.0
+bucket | canvas_cotton | Mid+,1,0,1,100.0,0.0,0,0.0
+accessory | vegan_leather | Mid+,2,0,2,100.0,0.0,0,0.0
+accessory | vegan_leather | Mid,2,0,2,100.0,0.0,0,0.0
+accessory | unknown | Upper Mid,1,0,1,100.0,0.0,0,0.0
+clutch | leather | Upper Mid,4,0,4,100.0,0.0,0,0.0
+accessory | unknown | Mid+,2,0,2,100.0,0.0,0,0.0
+accessory | unknown | Mid,6,0,6,100.0,0.0,0,0.0
+accessory | unknown | Entry,15,0,15,100.0,0.0,0,0.0
+accessory | recycled | Mid+,3,0,3,100.0,0.0,0,0.0
+accessory | recycled | Entry,1,0,1,100.0,0.0,0,0.0
+accessory | nylon | Premium,1,0,1,100.0,0.0,0,0.0
+accessory | nylon | Mid,2,0,2,100.0,0.0,0,0.0
+accessory | nylon | Entry,2,0,2,100.0,0.0,0,0.0
+accessory | leather | Upper Mid,2,0,2,100.0,0.0,0,0.0
+accessory | leather | Premium,4,0,4,100.0,0.0,0,0.0
+accessory | leather | Mid+,1,0,1,100.0,0.0,0,0.0
+accessory | leather | Mid,7,0,7,100.0,0.0,0,0.0
+accessory | leather | Entry,5,0,5,100.0,0.0,0,0.0
+clutch | leather | Mid+,8,0,8,100.0,0.0,0,0.0
+clutch | nylon | Mid,3,0,3,100.0,0.0,0,0.0
+crossbody | vegan_leather | Entry,2,0,2,100.0,0.0,0,0.0
+crossbody | leather | Premium,4,0,4,100.0,0.0,0,0.0
+crossbody | unknown | Upper Mid,1,0,1,100.0,0.0,0,0.0
+crossbody | unknown | Mid+,3,0,3,100.0,0.0,0,0.0
+crossbody | unknown | Mid,14,0,14,100.0,0.0,0,0.0
+crossbody | unknown | Entry,7,0,7,100.0,0.0,0,0.0
+crossbody | straw | Mid,2,0,2,100.0,0.0,0,0.0
+crossbody | recycled | Mid+,3,0,3,100.0,0.0,0,0.0
+crossbody | recycled | Mid,2,0,2,100.0,0.0,0,0.0
+crossbody | recycled | Entry,1,0,1,100.0,0.0,0,0.0
+crossbody | nylon | Upper Mid,1,0,1,100.0,0.0,0,0.0
+crossbody | nylon | Mid+,3,0,3,100.0,0.0,0,0.0
+crossbody | nylon | Mid,8,0,8,100.0,0.0,0,0.0
+crossbody | nylon | Entry,2,0,2,100.0,0.0,0,0.0
+crossbody | leather | Upper Mid,3,0,3,100.0,0.0,0,0.0
+crossbody | leather | Mid+,11,0,11,100.0,0.0,0,0.0
+clutch | recycled | Entry,2,0,2,100.0,0.0,0,0.0
+crossbody | leather | Mid,35,0,35,100.0,0.0,0,0.0
+crossbody | leather | Entry,2,0,2,100.0,0.0,0,0.0
+crossbody | canvas_cotton | Mid,3,0,3,100.0,0.0,0,0.0
+crossbody | canvas_cotton | Entry,1,0,1,100.0,0.0,0,0.0
+clutch | vegan_leather | Mid+,3,0,3,100.0,0.0,0,0.0
+clutch | vegan_leather | Mid,8,0,8,100.0,0.0,0,0.0
+clutch | vegan_leather | Entry,2,0,2,100.0,0.0,0,0.0
+clutch | unknown | Mid+,14,0,14,100.0,0.0,0,0.0
+clutch | unknown | Mid,22,0,22,100.0,0.0,0,0.0
+clutch | unknown | Entry,5,0,5,100.0,0.0,0,0.0
+clutch | straw | Mid,3,0,3,100.0,0.0,0,0.0
+clutch | recycled | Mid+,1,0,1,100.0,0.0,0,0.0
+clutch | recycled | Mid,5,0,5,100.0,0.0,0,0.0
+weekender | nylon | Mid,1,0,1,100.0,0.0,0,0.0

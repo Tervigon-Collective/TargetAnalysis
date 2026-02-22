@@ -5,8 +5,15 @@ Simplified & cleaned Target Handbags Scraper
 Extracts product data from Target's handbags category with pagination support.
 Optionally visits detail pages for richer metadata.
 
+Dedup: Keeps scraper_metadata.json in output-dir with already-fetched tcins.
+Subsequent runs skip those products and only crawl new data. Use --fresh to disable.
+
 Usage:
     python target_handbags_scraper.py --max-products 60 --details --output-dir ./data
+    python target_handbags_scraper.py --concurrent-pages 40  # Parallel listing pages
+    python target_handbags_scraper.py --concurrent-pdp 10   # Fetch 10 PDPs at once when --details
+    python target_handbags_scraper.py --proxy-file output/proxies.csv.20260222_120247.bak  # Rotate on failure
+    python target_handbags_scraper.py --fresh  # Force full re-crawl (ignore metadata dedup)
 """
 
 import asyncio
@@ -21,6 +28,15 @@ from typing import List, Optional, Dict, Any
 
 from playwright.async_api import async_playwright, Page, BrowserContext
 from bs4 import BeautifulSoup
+
+# Metadata file for dedup – tracks already-fetched tcins so we skip re-crawling
+METADATA_FILENAME = "scraper_metadata.json"
+
+# Errors that indicate proxy/connection failure – rotate and retry
+_PROXY_ROTATE_KEYWORDS = (
+    "proxy", "ERR_PROXY", "ERR_CONNECTION", "ETIMEDOUT", "ENOTFOUND",
+    "ECONNREFUSED", "net::ERR", "NS_BINDING", "Timeout", "timeout",
+)
 
 # ────────────────────────────────────────────────
 # Logging
@@ -111,6 +127,9 @@ class Product:
 # ────────────────────────────────────────────────
 
 class TargetHandbagsScraper:
+    # Target uses Nao (offset) for pagination; typically ~24 items per page
+    ITEMS_PER_PAGE = 24
+
     def __init__(
         self,
         max_products: Optional[int] = None,
@@ -121,17 +140,30 @@ class TargetHandbagsScraper:
         verbose: bool = False,
         get_details: bool = False,
         output_dir: str = "./data",
+        skip_dedup: bool = False,
         proxy: Optional[str] = None,
+        proxy_file: Optional[str] = None,
+        concurrent_listing_pages: int = 1,
+        concurrent_pdp: int = 1,
     ):
         self.max_products = max_products
         self.delay_min, self.delay_max = delay_range
+        self.concurrent_listing_pages = max(1, concurrent_listing_pages)
+        self.concurrent_pdp = max(1, concurrent_pdp)
         self.headless = headless
         self.devtools = devtools
         self.slow_mo = slow_mo
         self.verbose = verbose
         self.get_details = get_details
         self.output_dir = Path(output_dir).expanduser().resolve()
-        self.proxy = proxy  # e.g. "http://195.158.8.123:3128"
+        self.skip_dedup = skip_dedup
+        self.proxy = proxy
+        self.proxy_pool: List[str] = []
+        if proxy_file:
+            self.proxy_pool = self._load_proxy_pool(proxy_file)
+        elif proxy:
+            self.proxy_pool = [proxy]
+        self._proxy_index = 0
 
         if verbose:
             logger.setLevel(logging.DEBUG)
@@ -140,9 +172,79 @@ class TargetHandbagsScraper:
         self.base_url = "https://www.target.com/c/handbags-purses-accessories/-/N-5xtbo"
         self._pw = None
         self._browser = None
+        self._context = None
+        self._fetched_tcins: set = set()  # Loaded from metadata for dedup
 
     async def _delay(self):
         await asyncio.sleep(random.uniform(self.delay_min, self.delay_max))
+
+    def _load_metadata(self) -> None:
+        """Load fetched tcins from metadata file for dedup."""
+        path = self.output_dir / METADATA_FILENAME
+        if not path.exists():
+            logger.info("No metadata file found – starting fresh")
+            return
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            self._fetched_tcins = set(data.get("fetched_tcins", []))
+            logger.info(f"Loaded {len(self._fetched_tcins)} already-fetched tcins from metadata (dedup enabled)")
+        except Exception as e:
+            logger.warning(f"Could not load metadata: {e} – starting fresh")
+
+    def _save_metadata(self, new_tcins: List[str]) -> None:
+        """Update metadata with newly fetched tcins."""
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        path = self.output_dir / METADATA_FILENAME
+        self._fetched_tcins.update(new_tcins)
+        data = {
+            "fetched_tcins": sorted(self._fetched_tcins),
+            "last_updated": datetime.now().isoformat(),
+        }
+        path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        logger.info(f"Updated metadata: {len(self._fetched_tcins)} total tcins tracked")
+
+    def _load_proxy_pool(self, path: str) -> List[str]:
+        """Load proxies from file: one per line, ip:port or http://ip:port."""
+        p = Path(path).expanduser().resolve()
+        if not p.exists():
+            logger.warning(f"Proxy file not found: {p}")
+            return []
+        proxies = []
+        for line in p.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "://" not in line:
+                line = f"http://{line}"
+            proxies.append(line)
+        logger.info(f"Loaded {len(proxies)} proxies from {p}")
+        return proxies
+
+    def _get_current_proxy(self) -> Optional[str]:
+        if not self.proxy_pool:
+            return None
+        return self.proxy_pool[self._proxy_index % len(self.proxy_pool)]
+
+    def _rotate_proxy(self) -> bool:
+        """Move to next proxy. Returns True if a different proxy is available."""
+        if len(self.proxy_pool) <= 1:
+            return False
+        self._proxy_index += 1
+        return self._proxy_index < len(self.proxy_pool)
+
+    @staticmethod
+    def _is_proxy_error(exc: BaseException) -> bool:
+        msg = str(exc).lower()
+        return any(kw in msg for kw in (s.lower() for s in _PROXY_ROTATE_KEYWORDS))
+
+    def _build_listing_urls(self, num_pages: int) -> List[str]:
+        """Build listing page URLs using Target's Nao (offset) pagination."""
+        urls = []
+        for i in range(num_pages):
+            offset = i * self.ITEMS_PER_PAGE
+            sep = "&" if "?" in self.base_url else "?"
+            urls.append(f"{self.base_url}{sep}Nao={offset}")
+        return urls
 
     async def _bring_to_front(self, page: Page, label: str):
         try:
@@ -161,11 +263,12 @@ class TargetHandbagsScraper:
             "devtools": self.devtools,
             "slow_mo": self.slow_mo or 0,
         }
-        if self.proxy:
+        proxy = self._get_current_proxy()
+        if proxy:
             # Playwright requires credentials as separate fields, NOT embedded
             # in the URL (http://user:pass@host:port causes ERR_INVALID_AUTH_CREDENTIALS).
             from urllib.parse import urlparse
-            raw = self.proxy if "://" in self.proxy else f"http://{self.proxy}"
+            raw = proxy if "://" in proxy else f"http://{proxy}"
             parsed = urlparse(raw)
             server = f"{parsed.scheme}://{parsed.hostname}:{parsed.port}"
             proxy_dict: dict = {"server": server}
@@ -201,11 +304,33 @@ class TargetHandbagsScraper:
             },
         )
         page = await context.new_page()
+        self._context = context
 
         if self.verbose or self.devtools:
             page.on("console", lambda msg: logger.info(f"PAGE CONSOLE: {msg.type}: {msg.text}"))
             page.on("pageerror", lambda err: logger.error(f"PAGE ERROR: {err}"))
         return context, page
+
+    async def _close_browser(self):
+        """Close browser and playwright; safe to call if already closed."""
+        try:
+            if getattr(self, "_context", None):
+                await self._context.close()
+                self._context = None
+        except Exception:
+            pass
+        try:
+            if self._browser is not None:
+                await self._browser.close()
+                self._browser = None
+        except Exception:
+            pass
+        try:
+            if self._pw is not None:
+                await self._pw.stop()
+                self._pw = None
+        except Exception:
+            pass
 
     # ─── Listing page helpers ────────────────────────────────────────────────
 
@@ -278,6 +403,9 @@ class TargetHandbagsScraper:
         # referenced in HTML), giving React time to fully hydrate before we
         # check for product cards.
         await page.goto(url, wait_until="load", timeout=60000)
+        
+        # Extra wait for React hydration and client-side rendering
+        await asyncio.sleep(3)
 
         # Dismiss any sign-in / location / cookie modals that block the grid
         await self._dismiss_modals(page)
@@ -288,11 +416,17 @@ class TargetHandbagsScraper:
             await self._screenshot_debug(page, "no_products")
             return []
 
+        # Additional wait after products are found to let images/prices render
+        await asyncio.sleep(2)
+
         # Scroll all the way to the bottom so every lazy-loaded card appears
         await self._scroll_to_bottom(
             page,
             card_selector='[data-test="@web/ProductCard/title"]',
         )
+        
+        # Final wait after scroll completes to ensure all lazy content is rendered
+        await asyncio.sleep(2)
 
         items = await page.evaluate("""
         () => {
@@ -542,12 +676,20 @@ class TargetHandbagsScraper:
                 product.tcin = value
 
     async def _enrich_with_details(self, page: Page, product: Product):
+        logger.info(f"Enriching product detail: {product.tcin} - {product.title}")
         try:
             await self._bring_to_front(page, "detail")
             # "load" ensures all scripts are executed before we look for
             # product title, specs, and images.
             await page.goto(product.url, wait_until="load", timeout=60000)
+            
+            # Wait for React hydration
+            await asyncio.sleep(3)
+            
             await page.wait_for_selector('h1[data-test="product-title"]', timeout=20000)
+            
+            # Additional wait for dynamic content (images, specs, etc.)
+            await asyncio.sleep(2)
 
             # Expand accordion sections if collapsed, scrolling them into
             # view first so Playwright can interact with them reliably.
@@ -705,10 +847,34 @@ class TargetHandbagsScraper:
                             seen_imgs.add(clean)
                             product.images.append(clean)
 
+            # ── Fit & style (PdpHighlightsSection) ───────────────────────────
+            fit_and_style_bullets: List[str] = []
+            fit_section = soup.select_one('#PdpHighlightsSection, [data-test="@web/ProductDetailPageHighlights"]')
+            if fit_section:
+                for h2 in fit_section.find_all('h2'):
+                    h2_text = h2.get_text(strip=True).lower()
+                    if 'fit' in h2_text or 'style' in h2_text:
+                        ul = h2.find_next_sibling('ul')
+                        if ul:
+                            for li in ul.select('li'):
+                                txt = li.get_text(strip=True)
+                                if txt:
+                                    fit_and_style_bullets.append(txt)
+                        break
+            fit_and_style_text = "; ".join(fit_and_style_bullets) if fit_and_style_bullets else ""
+
             # ── Description ──────────────────────────────────────────────────
+            # When description not available, use Fit & style. When both available, combine both.
             desc = soup.select_one('[data-test="item-details-description"]')
+            desc_text = ""
             if desc:
-                product.description = " ".join(desc.stripped_strings)[:1500].strip()
+                desc_text = " ".join(desc.stripped_strings)[:1500].strip()
+            if desc_text and fit_and_style_text:
+                product.description = f"{desc_text} {fit_and_style_text}".strip()
+            elif fit_and_style_text:
+                product.description = fit_and_style_text
+            elif desc_text:
+                product.description = desc_text
 
             # ── Specs ────────────────────────────────────────────────────────
             # Primary: parse the rendered text right from BeautifulSoup
@@ -765,19 +931,34 @@ class TargetHandbagsScraper:
 
             # ── Color swatches ───────────────────────────────────────────────
             color_set: set = set()
+            # VariationComponent: <a aria-label="Color, Beige">, <a aria-label="Color, Light Pink">
             for swatch in soup.select(
+                'a[aria-label*="Color,"], a[aria-label*="Color, "], '
                 'button[aria-label*="color"], '
-                '[data-test*="colorSwatch"] button, '
-                '[class*="SwatchChip"] button, '
+                '[data-test*="colorSwatch"] button, [data-test*="colorSwatch"] a, '
+                '[data-test="@web/VariationComponent"] a[aria-label*="Color"], '
+                '[class*="SwatchChip"] button, [class*="ndsChip"] a, '
                 'button[data-variant-id]'
             ):
                 label = swatch.get("aria-label", "").strip()
-                # Typical label: "Red, select to change color"
                 if label:
+                    # "Color, Beige" or "Color, Light Pink, selected" -> "Beige", "Light Pink"
                     color_name = re.split(r',\s*select', label, flags=re.I)[0].strip()
+                    color_name = re.sub(r'^Color,\s*', '', color_name, flags=re.I).strip()
+                    color_name = re.sub(r',\s*selected\s*$', '', color_name, flags=re.I).strip()
                     if color_name and len(color_name) < 50:
                         color_set.add(color_name)
-            if color_set and not product.colors:
+            # Fallback: header shows selected color, e.g. "Color Light Pink" in headerWrapper
+            if not color_set:
+                var_comp = soup.select_one('[data-test="@web/VariationComponent"]')
+                if var_comp:
+                    header_div = var_comp.select_one('[class*="headerWrapper"]')
+                    if header_div:
+                        full_text = header_div.get_text(strip=True)
+                        color_txt = re.sub(r'^Color\s*', '', full_text, flags=re.I).strip()
+                        if color_txt and len(color_txt) < 50 and color_txt.lower() not in ('color', 'size'):
+                            color_set.add(color_txt)
+            if color_set:
                 product.colors = sorted(color_set)
 
             # ── is_new badge ─────────────────────────────────────────────────
@@ -792,9 +973,13 @@ class TargetHandbagsScraper:
             if add_to_cart:
                 atc_text = add_to_cart.get_text(strip=True).lower()
                 product.in_stock = "out of stock" not in atc_text and "unavailable" not in atc_text
+            
+            logger.info(f"  ✓ Successfully enriched {product.tcin}")
 
         except Exception as e:
-            logger.debug(f"Detail enrichment failed for {product.tcin}: {e}")
+            logger.warning(f"Detail enrichment failed for {product.tcin} ({product.title}): {type(e).__name__}: {str(e)[:200]}")
+            import traceback
+            logger.debug(f"Full traceback:\n{traceback.format_exc()}")
 
     def _parse_price(self, s: str) -> float:
         if not s:
@@ -808,81 +993,244 @@ class TargetHandbagsScraper:
     # ─── Main flow ───────────────────────────────────────────────────────────
 
     async def run(self):
-        context, listing_page = await self._init_browser()
+        if not self.skip_dedup:
+            self._load_metadata()
+        else:
+            logger.info("Dedup disabled (--fresh) – will crawl all products")
+        max_proxy_attempts = len(self.proxy_pool) if self.proxy_pool else 1
 
-        try:
-            url = self.base_url
-            page_num = 1
+        for attempt in range(max_proxy_attempts):
+            if attempt > 0:
+                self.products = []
+                logger.info(f"Retrying with proxy {self._proxy_index + 1}/{len(self.proxy_pool)}")
 
-            while url and (not self.max_products or len(self.products) < self.max_products):
-                logger.info(f"Page {page_num}  ──  {url}")
+            try:
+                context, listing_page = await self._init_browser()
+            except Exception as e:
+                if self.proxy_pool and self._is_proxy_error(e) and self._rotate_proxy():
+                    logger.warning(f"Proxy failed, rotating to next: {str(e)[:120]}")
+                    continue
+                raise
 
-                new_products = await self._scrape_listing_page(listing_page, url)
-                self.products.extend(new_products)
+            try:
+                # ═══════════════════════════════════════════════════════════════
+                # PHASE 1: Collect all product URLs from listing pages
+                # ═══════════════════════════════════════════════════════════════
+                logger.info("=" * 70)
+                logger.info("PHASE 1: Scraping listing pages to collect product URLs")
+                logger.info("=" * 70)
 
-                if len(new_products) == 0:
-                    logger.warning("No products found → likely end of results or block")
-                    break
+                if self.concurrent_listing_pages > 1:
+                    # Parallel mode: open N listing pages simultaneously
+                    await listing_page.close()  # Free the initial page; we create N new ones
+                    num_pages = self.concurrent_listing_pages
+                    urls = self._build_listing_urls(num_pages)
+                    logger.info(f"Opening {num_pages} listing pages simultaneously → {urls[0]} ... Nao={num_pages * self.ITEMS_PER_PAGE - self.ITEMS_PER_PAGE}")
 
-                # Enrich with detail pages if requested.
-                # Each product gets its own fresh tab so it loads completely
-                # without interference from the previous page's JS/state.
-                if self.get_details:
-                    for prod in new_products:
-                        if not prod.url:
-                            continue
-                        detail_page = await context.new_page()
+                    async def scrape_one_listing(ctx: BrowserContext, idx: int, u: str) -> List[Product]:
+                        page = await ctx.new_page()
                         try:
-                            await self._enrich_with_details(detail_page, prod)
+                            products = await self._scrape_listing_page(page, u)
+                            logger.info(f"  Page {idx + 1}/{num_pages} ({u}) → {len(products)} products")
+                            return products
                         finally:
-                            await detail_page.close()
-                            detail_page = None
-                        await self._delay()
+                            await page.close()
 
+                    tasks = [scrape_one_listing(context, i, u) for i, u in enumerate(urls)]
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                    seen_tcins: set = set()
+                    any_proxy_error = False
+                    for i, r in enumerate(results):
+                        if isinstance(r, Exception):
+                            logger.warning(f"  Page {i + 1} failed: {type(r).__name__}: {str(r)[:150]}")
+                            if self._is_proxy_error(r):
+                                any_proxy_error = True
+                            continue
+                        for p in r:
+                            if p.tcin and p.tcin not in seen_tcins:
+                                seen_tcins.add(p.tcin)
+                                self.products.append(p)
+                                if self.max_products and len(self.products) >= self.max_products:
+                                    break
                         if self.max_products and len(self.products) >= self.max_products:
                             break
 
-                # Try to go to next page
-                next_url = await self._get_next_page_url(listing_page)
-                if not next_url:
-                    logger.info("No more pages")
-                    break
+                    if self.max_products:
+                        self.products = self.products[:self.max_products]
+                    # Dedup: skip already-fetched products
+                    if not self.skip_dedup:
+                        before_dedup = len(self.products)
+                        self.products = [p for p in self.products if p.tcin and p.tcin not in self._fetched_tcins]
+                        skipped = before_dedup - len(self.products)
+                        if skipped:
+                            logger.info(f"Dedup: skipped {skipped} already-fetched products")
+                    logger.info(f"Phase 1 complete. Collected {len(self.products)} NEW products from {num_pages} parallel pages")
+                    if len(self.products) == 0 and any_proxy_error and self.proxy_pool and self._rotate_proxy():
+                        logger.warning("All parallel pages failed with proxy errors, rotating and retrying")
+                        await self._close_browser()
+                        continue
+                else:
+                    # Sequential mode (original behavior)
+                    url = self.base_url
+                    page_num = 1
 
-                url = next_url
-                page_num += 1
-                await self._delay()
+                    while url and (not self.max_products or len(self.products) < self.max_products):
+                        logger.info(f"Listing Page {page_num}  ──  {url}")
 
-            logger.info(f"Finished. Total products collected: {len(self.products)}")
+                        new_products = await self._scrape_listing_page(listing_page, url)
+                        self.products.extend(new_products)
 
-        finally:
-            try:
-                await context.close()
+                        if len(new_products) == 0:
+                            logger.warning("No products found → likely end of results or block")
+                            break
+
+                        if self.max_products and len(self.products) >= self.max_products:
+                            self.products = self.products[:self.max_products]
+                            logger.info(f"Reached max_products limit ({self.max_products})")
+                            break
+
+                        next_url = await self._get_next_page_url(listing_page)
+                        if not next_url:
+                            logger.info("No more pages")
+                            break
+
+                        url = next_url
+                        page_num += 1
+                        await self._delay()
+
+                    # Dedup: skip already-fetched products
+                    if not self.skip_dedup:
+                        before_dedup = len(self.products)
+                        self.products = [p for p in self.products if p.tcin and p.tcin not in self._fetched_tcins]
+                        skipped = before_dedup - len(self.products)
+                        if skipped:
+                            logger.info(f"Dedup: skipped {skipped} already-fetched products")
+                    logger.info(f"Phase 1 complete. Collected {len(self.products)} NEW products from {page_num} page(s)")
+
+                # ═══════════════════════════════════════════════════════════════
+                # PHASE 2: Visit product detail pages (concurrent when --concurrent-pdp > 1)
+                # ═══════════════════════════════════════════════════════════════
+                if self.get_details and self.products:
+                    logger.info("=" * 70)
+                    logger.info(f"PHASE 2: Enriching {len(self.products)} products (concurrent_pdp={self.concurrent_pdp})")
+                    logger.info("=" * 70)
+
+                    products_with_url = [p for p in self.products if p.url]
+                    if len(products_with_url) < len(self.products):
+                        logger.warning(f"Skipped {len(self.products) - len(products_with_url)} products without URL")
+
+                    for batch_start in range(0, len(products_with_url), self.concurrent_pdp):
+                        batch = products_with_url[batch_start : batch_start + self.concurrent_pdp]
+                        batch_num = batch_start // self.concurrent_pdp + 1
+                        total_batches = (len(products_with_url) + self.concurrent_pdp - 1) // self.concurrent_pdp
+
+                        async def fetch_one_pdp(prod: Product) -> None:
+                            page = await context.new_page()
+                            try:
+                                await self._enrich_with_details(page, prod)
+                            except Exception as e:
+                                logger.warning(f"Failed to enrich {prod.tcin}: {type(e).__name__}: {str(e)[:150]}")
+                            finally:
+                                await page.close()
+
+                        tasks = [fetch_one_pdp(p) for p in batch]
+                        await asyncio.gather(*tasks)
+
+                        logger.info(f"  Batch {batch_num}/{total_batches} done ({len(batch)} PDPs)")
+                        if batch_start + len(batch) < len(products_with_url):
+                            await self._delay()
+
+                logger.info("=" * 70)
+                logger.info(f"COMPLETE: Total products collected: {len(self.products)}")
+                logger.info("=" * 70)
+
+                self._save_results()
+                break  # Success – exit retry loop
+            except Exception as e:
+                if self.proxy_pool and self._is_proxy_error(e) and self._rotate_proxy():
+                    logger.warning(f"Scrape failed, rotating proxy: {str(e)[:120]}")
+                    await self._close_browser()
+                    continue
+                raise
             finally:
-                if self._browser is not None:
-                    await self._browser.close()
-                if self._pw is not None:
-                    await self._pw.stop()
-
-        self._save_results()
+                await self._close_browser()
 
     async def _get_next_page_url(self, page: Page) -> Optional[str]:
+        """Find and click the next page button, return new URL if successful."""
         try:
-            next_btn = page.locator('button[data-test="next"]:not([disabled])')
-            if await next_btn.count() == 0:
+            # Scroll to bottom first to make pagination visible
+            await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            await asyncio.sleep(0.3)
+            
+            # Wait for pagination container
+            try:
+                await page.wait_for_selector('[data-test="listing-page-pagination"]', timeout=5000)
+            except:
+                logger.debug("Pagination container not found")
                 return None
+            
+            # Check if next button exists and is clickable
+            next_btn = page.locator('button[data-test="next"]')
+            count = await next_btn.count()
+            logger.debug(f"Found {count} next button(s)")
+            
+            if count == 0:
+                logger.debug("No next button found - likely last page")
+                return None
+            
+            # Check if button is disabled by checking for disabled attribute or aria-disabled
+            is_disabled = await page.evaluate("""
+                () => {
+                    const btn = document.querySelector('button[data-test="next"]');
+                    if (!btn) return true;
+                    return btn.disabled || btn.getAttribute('aria-disabled') === 'true' || 
+                           btn.classList.contains('disabled');
+                }
+            """)
+            
+            if is_disabled:
+                logger.debug("Next button is disabled - reached last page")
+                return None
+            
+            # Check current page info
+            page_info = await page.evaluate("""
+                () => {
+                    const pageText = document.querySelector('[data-test="select"] span')?.textContent || '';
+                    return pageText;
+                }
+            """)
+            logger.debug(f"Current pagination: {page_info}")
 
             current_url = page.url
+            logger.debug(f"Clicking next button (current URL: {current_url})")
+            
+            # Scroll the button into view and click
+            await next_btn.first.scroll_into_view_if_needed()
+            await asyncio.sleep(0.3)
             await next_btn.first.click()
-            await asyncio.sleep(1.2)
+            
+            # Wait for navigation - check URL or product grid changes
+            await asyncio.sleep(2.5)
+            
+            # Wait for either URL change or product grid to reload
+            for attempt in range(20):
+                new_url = page.url
+                if new_url != current_url:
+                    logger.debug(f"✓ URL changed to: {new_url}")
+                    # Wait for products to load on new page
+                    try:
+                        await page.wait_for_selector('[data-test="@web/ProductCard/title"]', timeout=8000)
+                    except:
+                        pass
+                    return new_url
+                await asyncio.sleep(0.5)
 
-            # Wait until URL changes or new products appear
-            for _ in range(12):
-                if page.url != current_url:
-                    return page.url
-                await asyncio.sleep(0.4)
-
+            logger.warning("Next button clicked but URL didn't change after 10s - pagination may have failed")
             return None
-        except:
+            
+        except Exception as e:
+            logger.warning(f"Pagination error: {type(e).__name__}: {str(e)[:150]}")
             return None
 
     def _save_results(self):
@@ -917,6 +1265,12 @@ class TargetHandbagsScraper:
             writer.writerows(rows)
         logger.info(f"Saved CSV:   {path_csv}")
 
+        # Update metadata so these products are not re-crawled next run
+        if not self.skip_dedup:
+            new_tcins = [p.tcin for p in self.products if p.tcin]
+            if new_tcins:
+                self._save_metadata(new_tcins)
+
 
 # ────────────────────────────────────────────────
 # CLI entry point
@@ -928,11 +1282,15 @@ def parse_args():
     parser.add_argument("--max-products", type=int, default=None, help="Stop after N products")
     parser.add_argument("--details", action="store_true", help="Also scrape detail pages")
     parser.add_argument("--output-dir", default="./data", help="Where to save results")
+    parser.add_argument("--fresh", action="store_true", help="Disable dedup – crawl all products (ignore metadata)")
+    parser.add_argument("--concurrent-pages", type=int, default=1, help="Open N listing pages simultaneously (default 1 = sequential)")
+    parser.add_argument("--concurrent-pdp", type=int, default=1, help="Fetch N product detail pages simultaneously when --details (default 1)")
     parser.add_argument("--headless", action="store_true", default=True, help="Run headless (default)")
     parser.add_argument("--headed", action="store_true", help="Show browser window")
     parser.add_argument("--devtools", action="store_true", help="Open Chromium DevTools (forces headed)")
     parser.add_argument("--slow-mo", type=int, default=0, help="Slow down Playwright actions in ms")
-    parser.add_argument("--proxy", default=None, help="Proxy to use, e.g. 50.203.147.152:80 or http://user:pass@host:port")
+    parser.add_argument("--proxy", default=None, help="Single proxy, e.g. 50.203.147.152:80 or http://user:pass@host:port")
+    parser.add_argument("--proxy-file", default=None, help="Load proxies from file (one per line, ip:port). Rotates on failure.")
     parser.add_argument("--verbose", action="store_true", help="More logging")
     return parser.parse_args()
 
@@ -944,11 +1302,15 @@ async def main():
         max_products=args.max_products,
         get_details=args.details,
         output_dir=args.output_dir,
+        skip_dedup=args.fresh,
+        concurrent_listing_pages=args.concurrent_pages,
+        concurrent_pdp=args.concurrent_pdp,
         headless=not args.headed,
         devtools=args.devtools,
         slow_mo=args.slow_mo,
         verbose=args.verbose,
         proxy=args.proxy,
+        proxy_file=args.proxy_file,
     )
 
     await scraper.run()
