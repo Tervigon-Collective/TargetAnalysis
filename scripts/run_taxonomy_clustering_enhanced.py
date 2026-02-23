@@ -175,6 +175,17 @@ def build_raw_text(row: dict) -> str:
         _s(row.get("handle_type")),
         _s(row.get("fabric_name")),
     ])
+    # Include mission_tags when present (from pre-tagged CSV / tag_missions_and_cluster output)
+    mt = row.get("mission_tags")
+    if mt is not None and not (isinstance(mt, float) and pd.isna(mt)):
+        if isinstance(mt, str):
+            mt_str = mt.replace("|", " ").strip()
+        elif isinstance(mt, (list, tuple)):
+            mt_str = " ".join(str(x) for x in mt).strip()
+        else:
+            mt_str = str(mt).strip()
+        if mt_str:
+            parts.append(mt_str)
     return " ".join(p for p in parts if p)
 
 

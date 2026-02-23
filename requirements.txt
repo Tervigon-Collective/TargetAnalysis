@@ -16,6 +16,9 @@ Pillow
 # CLIP: install from GitHub (no PyPI package):
 #   pip install git+https://github.com/openai/CLIP.git
 
+# Mission tagging (Azure OpenAI)
+openai>=1.0.0
+
 # Gap analysis (clustering + reports)
 sentence-transformers>=2.2.0
 scikit-learn>=1.3.0

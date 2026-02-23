@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """
-Normalize and clean Target + Gap product CSVs into a unified schema, then upload to SQLite.
+Normalize and clean Target + Gap product CSVs into a unified schema, then upload to SQLite or ChromaDB.
 
 - Maps both sources to a canonical schema with maximum identifiable columns.
 - Cleans data to avoid misleading values (UI junk, non-product images, etc.).
 - Outputs CSV/JSON and optionally loads to SQLite for querying and embedding pipelines.
+- With --chroma: uploads to self-hosted ChromaDB with CLIP embeddings for similarity search.
 
 Usage:
     python scripts/normalize_and_upload.py data/target_handbags_20260223_014436.csv
     python scripts/normalize_and_upload.py data/*.csv
+    python scripts/normalize_and_upload.py data/target_handbags_20260223_165023.csv --chroma
 
 Default output: output/products_normalized_combined.csv|json, output/products.db
 """
@@ -18,8 +20,19 @@ import argparse
 import csv
 import json
 import logging
+import os
 import re
 from pathlib import Path
+from urllib.parse import urlparse
+
+# Load .env from project root for CHROMA_HTTP_* vars
+_script_dir = Path(__file__).resolve().parent
+_project_root = _script_dir.parent
+try:
+    from dotenv import load_dotenv
+    load_dotenv(_project_root / ".env")
+except ImportError:
+    pass
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -91,6 +104,38 @@ CANONICAL_COLUMNS = [
     "promo_excluded",
     "scrape_date",
 ]
+
+# User-specified columns for embedding pipeline and ChromaDB metadata (25 fields)
+EMBEDDING_COLUMNS = [
+    "availability_text",
+    "average_rating",
+    "brand",
+    "care_instructions",
+    "category_breadcrumb",
+    "color_options",
+    "description",
+    "dimensions",
+    "image_count",
+    "image_url",
+    "images_list",
+    "is_sale",
+    "material_text",
+    "name",
+    "price_currency",
+    "price_current",
+    "price_original",
+    "product_id",
+    "product_url",
+    "promo_excluded",
+    "rating_count",
+    "review_count",
+    "scrape_date",
+    "sku",
+    "sold_shipped_by",
+]
+
+# CLIP context is 77 tokens; keep document text within ~500 chars
+MAX_DOCUMENT_CHARS = 500
 
 # Patterns for non-product image URLs (cookie consent, placeholders, etc.)
 NON_PRODUCT_IMAGE_PATTERNS = (
@@ -635,6 +680,184 @@ def write_output(rows: list[dict], out_dir: Path, stem: str, fmt: str) -> None:
         logger.info("  → %s", path)
 
 
+def slice_row_to_embedding_columns(row: dict) -> dict:
+    """Slice canonical row to user-specified 25 columns only."""
+    return {k: row.get(k, "") for k in EMBEDDING_COLUMNS}
+
+
+def build_document_text(row: dict) -> str:
+    """Build a single searchable string per product for CLIP (truncated).
+    Uses name, brand, description, material_text, product_details.
+    """
+    parts = []
+    for key in ("name", "brand", "description", "material_text", "product_details"):
+        raw = row.get(key)
+        if not raw:
+            continue
+        s = _s(raw)
+        if "|" in s:
+            s = s.replace("|", " ")
+        if s:
+            parts.append(s)
+    text = " ".join(parts)
+    if len(text) > MAX_DOCUMENT_CHARS:
+        text = text[:MAX_DOCUMENT_CHARS].rsplit(" ", 1)[0] or text[:MAX_DOCUMENT_CHARS]
+    return text.strip() or ""
+
+
+def build_chroma_metadata(row: dict) -> dict:
+    """Build flat metadata for Chroma from EMBEDDING_COLUMNS (scalar values, truncate long strings).
+    Also adds UI-friendly aliases (title, url, in_stock) for Chroma Cloud dashboard display.
+    """
+    meta = {}
+    for key in EMBEDDING_COLUMNS:
+        v = row.get(key)
+        if v is None or v == "":
+            continue
+        if isinstance(v, bool):
+            meta[key] = v
+        elif isinstance(v, (int, float)):
+            meta[key] = v
+        else:
+            s = _s(v)
+            if len(s) > 500:
+                s = s[:500]
+            meta[key] = s
+
+    # UI-friendly aliases for Chroma Cloud dashboard (title, url, in_stock columns)
+    if row.get("name"):
+        meta["title"] = _s(row["name"])[:500]
+    if row.get("product_url"):
+        meta["url"] = _s(row["product_url"])[:500]
+    av = _s(row.get("availability_text", "")).lower()
+    if av in ("in stock", "true", "1", "yes"):
+        meta["in_stock"] = True
+    elif av in ("out of stock", "false", "0", "no"):
+        meta["in_stock"] = False
+
+    return meta
+
+
+def _compute_clip_embeddings(documents: list[str], device: str = "cpu") -> list[list[float]]:
+    """Compute CLIP text embeddings for document strings."""
+    import torch
+    import clip
+
+    logger.info("Loading CLIP model ViT-B/32 on %s...", device)
+    model, _ = clip.load("ViT-B/32", device=device)
+    model.eval()
+
+    embeddings_out: list[list[float]] = []
+    for i, doc in enumerate(documents):
+        text = (doc[:MAX_DOCUMENT_CHARS].rsplit(" ", 1)[0] or doc[:MAX_DOCUMENT_CHARS]) if len(doc) > MAX_DOCUMENT_CHARS else doc
+        text = text or " "
+        with torch.no_grad():
+            tokens = clip.tokenize([text], truncate=True).to(device)
+            feat = model.encode_text(tokens)
+            feat = feat / feat.norm(dim=-1, keepdim=True)
+            embeddings_out.append(feat.cpu().float().numpy()[0].tolist())
+        if (i + 1) % 20 == 0:
+            logger.info("Computed embeddings %d/%d.", i + 1, len(documents))
+    return embeddings_out
+
+
+def upload_to_chroma(
+    rows: list[dict],
+    collection_name: str,
+    batch_size: int = 32,
+    *,
+    api_key: str | None = None,
+    tenant: str | None = None,
+    database: str | None = None,
+    chroma_url: str | None = None,
+    chroma_user: str | None = None,
+    chroma_password: str | None = None,
+) -> None:
+    """Upload normalized rows to ChromaDB (Cloud or self-hosted) with CLIP embeddings."""
+    import chromadb
+    from chromadb.config import Settings
+
+    # Filter to rows with non-empty document text
+    ids_list: list[str] = []
+    documents_list: list[str] = []
+    metadatas_list: list[dict] = []
+    seen_ids: set[str] = set()
+
+    for row in rows:
+        pid = _s(row.get("product_id"))
+        if not pid or pid in seen_ids:
+            continue
+        doc = build_document_text(row)
+        if not doc:
+            logger.debug("Skipping %s: empty document text", pid)
+            continue
+        seen_ids.add(pid)
+        ids_list.append(pid)
+        documents_list.append(doc)
+        metadatas_list.append(build_chroma_metadata(row))
+
+    if not ids_list:
+        logger.warning("No rows with valid document text to upload to Chroma.")
+        return
+
+    # Chroma Cloud (preferred when api_key is set)
+    if api_key:
+        kwargs: dict = {"api_key": api_key}
+        if tenant:
+            kwargs["tenant"] = tenant
+        if database:
+            kwargs["database"] = database
+        client = chromadb.CloudClient(**kwargs)
+        logger.info("Connected to Chroma Cloud (tenant=%s, database=%s).", tenant or "default", database or "default")
+    else:
+        # Self-hosted via HttpClient
+        url = chroma_url or "http://localhost:8000"
+        parsed = urlparse(url)
+        host = parsed.hostname or "localhost"
+        port = parsed.port or 8000
+
+        settings_kw: dict = {}
+        if chroma_user and chroma_password:
+            creds = f"{chroma_user}:{chroma_password}"
+            settings_kw = {
+                "chroma_client_auth_provider": "chromadb.auth.basic_authn.BasicAuthClientProvider",
+                "chroma_client_auth_credentials": creds,
+            }
+
+        client = chromadb.HttpClient(
+            host=host,
+            port=port,
+            settings=Settings(**settings_kw) if settings_kw else Settings(),
+        )
+        logger.info("Connected to ChromaDB at %s:%d.", host, port)
+
+    # Compute CLIP embeddings
+    device = "cuda" if __import__("torch").cuda.is_available() else "cpu"
+    embeddings = _compute_clip_embeddings(documents_list, device=device)
+    logger.info("Computed %d CLIP embeddings.", len(embeddings))
+
+    # Get or create collection (use default embedding fn; we pass precomputed embeddings)
+    collection = client.get_or_create_collection(
+        name=collection_name,
+        metadata={"description": "Target handbags with CLIP text embeddings"},
+    )
+
+    for i in range(0, len(ids_list), batch_size):
+        batch_ids = ids_list[i : i + batch_size]
+        batch_docs = documents_list[i : i + batch_size]
+        batch_meta = metadatas_list[i : i + batch_size]
+        batch_emb = embeddings[i : i + batch_size]
+        collection.add(
+            ids=batch_ids,
+            embeddings=batch_emb,
+            documents=batch_docs,
+            metadatas=batch_meta,
+        )
+        logger.info("Added batch %d–%d (%d items).", i + 1, min(i + batch_size, len(ids_list)), len(batch_ids))
+
+    logger.info("Chroma upload complete. Collection '%s' has %d documents.", collection_name, len(ids_list))
+
+
 def upload_to_sqlite(rows: list[dict], db_path: Path, table: str = "products") -> None:
     """Upload collapsed rows to SQLite."""
     try:
@@ -716,6 +939,57 @@ def main() -> None:
         action="store_true",
         help="Filter to only rows with description (default: keep all rows).",
     )
+    parser.add_argument(
+        "--chroma",
+        action="store_true",
+        help="Upload to ChromaDB with CLIP embeddings (Cloud if CHROMA_API_KEY set, else self-hosted).",
+    )
+    parser.add_argument(
+        "--api-key",
+        default=os.environ.get("CHROMA_API_KEY"),
+        help="Chroma Cloud API key (default: CHROMA_API_KEY env).",
+    )
+    parser.add_argument(
+        "--tenant",
+        default=os.environ.get("CHROMA_TENANT"),
+        help="Chroma Cloud tenant (default: CHROMA_TENANT env).",
+    )
+    parser.add_argument(
+        "--database",
+        default=os.environ.get("CHROMA_DATABASE"),
+        help="Chroma Cloud database (default: CHROMA_DATABASE env).",
+    )
+    _chroma_url_default = os.environ.get("CHROMA_HTTP_URL")
+    if not _chroma_url_default and os.environ.get("CHROMA_HTTP_HOST"):
+        _host = os.environ.get("CHROMA_HTTP_HOST", "localhost")
+        _port = os.environ.get("CHROMA_HTTP_PORT", "8000")
+        _chroma_url_default = f"http://{_host}:{_port}"
+    parser.add_argument(
+        "--chroma-url",
+        default=_chroma_url_default or "http://localhost:8000",
+        help="ChromaDB HTTP URL (default: CHROMA_HTTP_URL or CHROMA_HTTP_HOST:PORT env).",
+    )
+    parser.add_argument(
+        "--chroma-user",
+        default=os.environ.get("CHROMA_HTTP_USER"),
+        help="ChromaDB Basic Auth username (default: CHROMA_HTTP_USER env, or from CHROMA_AUTH_CREDENTIALS).",
+    )
+    parser.add_argument(
+        "--chroma-password",
+        default=os.environ.get("CHROMA_HTTP_PASSWORD"),
+        help="ChromaDB Basic Auth password (default: CHROMA_HTTP_PASSWORD env, or from CHROMA_AUTH_CREDENTIALS).",
+    )
+    parser.add_argument(
+        "--collection",
+        default="target_handbags",
+        help="ChromaDB collection name (default: target_handbags).",
+    )
+    parser.add_argument(
+        "--chroma-batch-size",
+        type=int,
+        default=32,
+        help="Batch size for Chroma add() (default: 32).",
+    )
     args = parser.parse_args()
 
     all_rows: list[dict] = []
@@ -768,6 +1042,26 @@ def main() -> None:
 
     if args.db:
         upload_to_sqlite(all_rows, args.db, args.table)
+
+    if args.chroma:
+        chroma_user = args.chroma_user
+        chroma_password = args.chroma_password
+        # Support CHROMA_AUTH_CREDENTIALS="user:password" if user/password not set (self-hosted only)
+        if not chroma_user and not chroma_password:
+            creds = os.environ.get("CHROMA_AUTH_CREDENTIALS", "")
+            if ":" in creds:
+                chroma_user, _, chroma_password = creds.partition(":")
+        upload_to_chroma(
+            rows=all_rows,
+            collection_name=args.collection,
+            batch_size=args.chroma_batch_size,
+            api_key=args.api_key,
+            tenant=args.tenant,
+            database=args.database,
+            chroma_url=args.chroma_url,
+            chroma_user=chroma_user,
+            chroma_password=chroma_password,
+        )
 
     logger.info("Done.")
 

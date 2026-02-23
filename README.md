@@ -2,7 +2,39 @@
 
 Target handbags scraper and Chroma DB ingest with CLIP text (+ image) embeddings.
 
-## Chroma DB ingest (CLIP embeddings)
+## Normalize and upload to ChromaDB
+
+The script `scripts/normalize_and_upload.py` normalizes and cleans Target/Gap product CSVs, then optionally uploads to **Chroma Cloud** or **self-hosted ChromaDB** with CLIP text embeddings.
+
+### Chroma Cloud (default)
+
+Set in `.env`:
+
+```
+CHROMA_API_KEY=ck-xxx
+CHROMA_TENANT=090e3768-ba9f-40b7-ac23-ae1f21756245
+CHROMA_DATABASE=selericDB
+```
+
+### Run normalize + Chroma upload
+
+```bash
+# Uses Chroma Cloud when CHROMA_API_KEY is set
+python scripts/normalize_and_upload.py data/target_handbags_20260223_165023.csv --chroma
+
+# Self-hosted with Basic Auth:
+python scripts/normalize_and_upload.py data/target_handbags_20260223_165023.csv --chroma \
+  --chroma-url http://72.61.228.168:5302 \
+  --chroma-user "admin@seleric@7890" \
+  --chroma-password "Seleric-chroma-db@789" \
+  --collection target_handbags
+```
+
+Output: `output/products_normalized_combined.csv|json`, SQLite `output/products.db`, and ChromaDB collection with CLIP embeddings.
+
+---
+
+## Chroma DB ingest (CLIP embeddings) – Cloud
 
 The script `scripts/ingest_handbags_to_chroma.py` loads handbags JSON/CSV, builds document text per product, embeds with CLIP (ViT-B/32), and uploads to **Chroma Cloud**.
 

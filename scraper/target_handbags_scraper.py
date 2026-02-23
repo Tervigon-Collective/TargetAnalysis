@@ -169,7 +169,8 @@ class TargetHandbagsScraper:
             logger.setLevel(logging.DEBUG)
 
         self.products: List[Product] = []
-        self.base_url = "https://www.target.com/c/handbags-purses-accessories/-/N-5xtbo"
+        # Root link: Handbags & Purses category (only scrape from this)
+        self.base_url = "https://www.target.com/c/handbags-purses-accessories/-/N-5xtboZ4uja2Ze6p1mZxrye7Z1vs54?moveTo=product-list-grid"
         self._pw = None
         self._browser = None
         self._context = None
@@ -237,11 +238,11 @@ class TargetHandbagsScraper:
         msg = str(exc).lower()
         return any(kw in msg for kw in (s.lower() for s in _PROXY_ROTATE_KEYWORDS))
 
-    def _build_listing_urls(self, num_pages: int) -> List[str]:
+    def _build_listing_urls(self, num_pages: int, start_offset: int = 0) -> List[str]:
         """Build listing page URLs using Target's Nao (offset) pagination."""
         urls = []
         for i in range(num_pages):
-            offset = i * self.ITEMS_PER_PAGE
+            offset = start_offset + i * self.ITEMS_PER_PAGE
             sep = "&" if "?" in self.base_url else "?"
             urls.append(f"{self.base_url}{sep}Nao={offset}")
         return urls
@@ -303,6 +304,7 @@ class TargetHandbagsScraper:
                 "Sec-Ch-Ua-Platform": '"Windows"',
             },
         )
+        context.set_default_navigation_timeout(120_000)  # 2 min for slow proxies
         page = await context.new_page()
         self._context = context
 
@@ -402,7 +404,7 @@ class TargetHandbagsScraper:
         # "load" waits for the full load event (all scripts & stylesheets
         # referenced in HTML), giving React time to fully hydrate before we
         # check for product cards.
-        await page.goto(url, wait_until="load", timeout=60000)
+        await page.goto(url, wait_until="load", timeout=120_000)
         
         # Extra wait for React hydration and client-side rendering
         await asyncio.sleep(3)
@@ -681,7 +683,7 @@ class TargetHandbagsScraper:
             await self._bring_to_front(page, "detail")
             # "load" ensures all scripts are executed before we look for
             # product title, specs, and images.
-            await page.goto(product.url, wait_until="load", timeout=60000)
+            await page.goto(product.url, wait_until="load", timeout=120_000)
             
             # Wait for React hydration
             await asyncio.sleep(3)
@@ -1021,43 +1023,61 @@ class TargetHandbagsScraper:
                 logger.info("=" * 70)
 
                 if self.concurrent_listing_pages > 1:
-                    # Parallel mode: open N listing pages simultaneously
+                    # Parallel mode: open N listing pages per round, paginate until max_products or end
                     await listing_page.close()  # Free the initial page; we create N new ones
                     num_pages = self.concurrent_listing_pages
-                    urls = self._build_listing_urls(num_pages)
-                    logger.info(f"Opening {num_pages} listing pages simultaneously → {urls[0]} ... Nao={num_pages * self.ITEMS_PER_PAGE - self.ITEMS_PER_PAGE}")
+                    seen_tcins: set = set()
+                    any_proxy_error = False
+                    start_offset = 0
+                    total_pages_scraped = 0
 
                     async def scrape_one_listing(ctx: BrowserContext, idx: int, u: str) -> List[Product]:
                         page = await ctx.new_page()
                         try:
                             products = await self._scrape_listing_page(page, u)
-                            logger.info(f"  Page {idx + 1}/{num_pages} ({u}) → {len(products)} products")
                             return products
                         finally:
                             await page.close()
 
-                    tasks = [scrape_one_listing(context, i, u) for i, u in enumerate(urls)]
-                    results = await asyncio.gather(*tasks, return_exceptions=True)
+                    while True:
+                        urls = self._build_listing_urls(num_pages, start_offset=start_offset)
+                        logger.info(f"Round Nao={start_offset}..{start_offset + num_pages * self.ITEMS_PER_PAGE - self.ITEMS_PER_PAGE} ({len(urls)} pages)")
 
-                    seen_tcins: set = set()
-                    any_proxy_error = False
-                    for i, r in enumerate(results):
-                        if isinstance(r, Exception):
-                            logger.warning(f"  Page {i + 1} failed: {type(r).__name__}: {str(r)[:150]}")
-                            if self._is_proxy_error(r):
-                                any_proxy_error = True
-                            continue
-                        for p in r:
-                            if p.tcin and p.tcin not in seen_tcins:
-                                seen_tcins.add(p.tcin)
-                                self.products.append(p)
-                                if self.max_products and len(self.products) >= self.max_products:
-                                    break
+                        tasks = [scrape_one_listing(context, i, u) for i, u in enumerate(urls)]
+                        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                        round_new = 0
+                        round_total = 0
+                        for i, r in enumerate(results):
+                            if isinstance(r, Exception):
+                                logger.warning(f"  Page {i + 1} failed: {type(r).__name__}: {str(r)[:150]}")
+                                if self._is_proxy_error(r):
+                                    any_proxy_error = True
+                                continue
+                            round_total += len(r)
+                            for p in r:
+                                if p.tcin and p.tcin not in seen_tcins:
+                                    seen_tcins.add(p.tcin)
+                                    self.products.append(p)
+                                    round_new += 1
+                            logger.info(f"  Page {i + 1} ({urls[i].split('Nao=')[-1]}) → {len(r)} products")
+
+                        total_pages_scraped += sum(1 for r in results if not isinstance(r, Exception))
+
                         if self.max_products and len(self.products) >= self.max_products:
+                            self.products = self.products[:self.max_products]
+                            logger.info(f"Reached max_products ({self.max_products})")
+                            break
+                        if round_new == 0 and round_total == 0:
+                            logger.info("No new products – end of catalog")
+                            break
+                        if round_new == 0:
+                            logger.info("No new unique products – end of catalog")
                             break
 
-                    if self.max_products:
-                        self.products = self.products[:self.max_products]
+                        start_offset += num_pages * self.ITEMS_PER_PAGE
+                        await self._delay()
+
                     # Dedup: skip already-fetched products
                     if not self.skip_dedup:
                         before_dedup = len(self.products)
@@ -1065,7 +1085,7 @@ class TargetHandbagsScraper:
                         skipped = before_dedup - len(self.products)
                         if skipped:
                             logger.info(f"Dedup: skipped {skipped} already-fetched products")
-                    logger.info(f"Phase 1 complete. Collected {len(self.products)} NEW products from {num_pages} parallel pages")
+                    logger.info(f"Phase 1 complete. Collected {len(self.products)} NEW products from {total_pages_scraped} parallel pages")
                     if len(self.products) == 0 and any_proxy_error and self.proxy_pool and self._rotate_proxy():
                         logger.warning("All parallel pages failed with proxy errors, rotating and retrying")
                         await self._close_browser()

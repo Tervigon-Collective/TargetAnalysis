@@ -1,0 +1,70 @@
+# 20-Mission Taxonomy for handbag/bag products
+# Used by scripts/llm_mission_tagger.py for LLM prompt context
+
+missions:
+  - id: occasion_glam
+    label: "Party, evening, statement"
+    signals: "embellished, metallic, clutch, satin"
+  - id: everyday_crossbody
+    label: "Hands-free daily"
+    signals: "adjustable strap, medium size, zip top"
+  - id: work_tote
+    label: "Professional + capacity"
+    signals: "laptop sleeve, structured, compartments"
+  - id: weekend_bucket
+    label: "Casual soft structure"
+    signals: "bucket shape, relaxed silhouette"
+  - id: travel_utility
+    label: "Security + packability"
+    signals: "zip, nylon, anti-theft, multi-pocket"
+  - id: micro_mini_impulse
+    label: "Trend small bags"
+    signals: "mini, novelty, bright colors"
+  - id: slg_small_leathers
+    label: "Wallets, cardholders"
+    signals: "wallet, cardholder, key case"
+  - id: gym_active
+    label: "Athleisure"
+    signals: "nylon, duffel, water-resistant"
+  - id: diaper_parent
+    label: "Parent utility"
+    signals: "stroller straps, bottle holders"
+  - id: campus_student
+    label: "School/college"
+    signals: "backpack, laptop fit"
+  - id: luxury_signal
+    label: "Status"
+    signals: "logo, premium leather"
+  - id: minimal_modern
+    label: "Clean staple"
+    signals: "neutral, low hardware"
+  - id: statement_fashion
+    label: "Fashion-forward"
+    signals: "bold shape, novelty"
+  - id: value_mass
+    label: "Price-led"
+    signals: "synthetic, low price"
+  - id: eco_conscious
+    label: "Sustainability"
+    signals: "recycled, vegan leather"
+  - id: gifting_ready
+    label: "Occasion gifting"
+    signals: "compact, decorative"
+  - id: convertible_multiway
+    label: "Functional flexibility"
+    signals: "removable strap, 2-way"
+  - id: security_priority
+    label: "Safety"
+    signals: "RFID, anti-slash"
+  - id: oversized_carryall
+    label: "Max capacity"
+    signals: "weekender, large tote"
+  - id: festival_outdoor
+    label: "Event + outdoor"
+    signals: "crossbody small, durable"
+
+strategic_groupings:
+  function_driven: [work_tote, travel_utility, gym_active, campus_student, diaper_parent, security_priority]
+  style_driven: [occasion_glam, statement_fashion, minimal_modern, luxury_signal, weekend_bucket]
+  size_driven: [micro_mini_impulse, oversized_carryall, slg_small_leathers]
+  purchase_driven: [value_mass, eco_conscious, gifting_ready, convertible_multiway]
