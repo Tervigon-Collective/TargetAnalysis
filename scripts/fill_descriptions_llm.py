@@ -158,8 +158,7 @@ def _call_azure_openai(prompt: str) -> str:
     response = client.chat.completions.create(
         model=deployment,
         messages=[{"role": "user", "content": prompt}],
-        temperature=0.3,
-        max_tokens=512,
+        max_completion_tokens=512,
     )
     return (response.choices[0].message.content or "").strip()
 

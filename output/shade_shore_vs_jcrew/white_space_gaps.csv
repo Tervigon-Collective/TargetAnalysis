@@ -1,0 +1,31 @@
+category,mission,price_band,focus_count_in_cell,competitor_count_in_cell,focus_density,competitor_median_density,competitor_max_density,gap,target_count_in_cell,target_density
+Bottoms,value_mass,50_75,0,2,0.0,1.0,1.0,1.0,0,0.0
+"Candles, Grooming & Home",travel_utility,75_plus,0,2,0.0,1.0,1.0,1.0,0,0.0
+boys,campus_student,75_plus,0,2,0.0,1.0,1.0,1.0,0,0.0
+Bags & Wallets,slg_small_leathers,75_plus,0,6,0.0,0.461538,0.461538,0.461538,0,0.0
+girls,micro_mini_impulse,75_plus,0,3,0.0,0.428571,0.428571,0.428571,0,0.0
+Bags & Wallets,oversized_carryall,75_plus,0,5,0.0,0.384615,0.384615,0.384615,0,0.0
+women,everyday_crossbody,75_plus,0,3,0.0,0.3,0.3,0.3,0,0.0
+women,weekend_bucket,75_plus,0,3,0.0,0.3,0.3,0.3,0,0.0
+girls,occasion_glam,75_plus,0,2,0.0,0.285714,0.285714,0.285714,0,0.0
+bags,occasion_glam,75_plus,0,17,0.0,0.269841,0.269841,0.269841,0,0.0
+women,occasion_glam,75_plus,0,2,0.0,0.2,0.2,0.2,0,0.0
+girls,gifting_ready,50_75,0,1,0.0,0.142857,0.142857,0.142857,0,0.0
+girls,gym_active,75_plus,0,1,0.0,0.142857,0.142857,0.142857,0,0.0
+bags,luxury_signal,75_plus,0,8,0.0,0.126984,0.126984,0.126984,0,0.0
+bags,micro_mini_impulse,75_plus,0,7,0.0,0.111111,0.111111,0.111111,0,0.0
+women,oversized_carryall,75_plus,0,1,0.0,0.1,0.1,0.1,0,0.0
+women,work_tote,75_plus,0,1,0.0,0.1,0.1,0.1,0,0.0
+bags,everyday_crossbody,75_plus,0,6,0.0,0.095238,0.095238,0.095238,0,0.0
+bags,weekend_bucket,75_plus,0,6,0.0,0.095238,0.095238,0.095238,0,0.0
+Bags & Wallets,travel_utility,75_plus,0,1,0.0,0.076923,0.076923,0.076923,0,0.0
+Bags & Wallets,work_tote,75_plus,0,1,0.0,0.076923,0.076923,0.076923,0,0.0
+bags,work_tote,75_plus,0,4,0.0,0.063492,0.063492,0.063492,0,0.0
+bags,gym_active,75_plus,0,3,0.0,0.047619,0.047619,0.047619,0,0.0
+bags,oversized_carryall,75_plus,0,3,0.0,0.047619,0.047619,0.047619,0,0.0
+bags,convertible_multiway,75_plus,0,2,0.0,0.031746,0.031746,0.031746,0,0.0
+bags,minimal_modern,75_plus,0,2,0.0,0.031746,0.031746,0.031746,0,0.0
+bags,travel_utility,75_plus,0,2,0.0,0.031746,0.031746,0.031746,0,0.0
+bags,eco_conscious,75_plus,0,1,0.0,0.015873,0.015873,0.015873,0,0.0
+bags,statement_fashion,75_plus,0,1,0.0,0.015873,0.015873,0.015873,0,0.0
+bags,value_mass,25_35,0,1,0.0,0.015873,0.015873,0.015873,0,0.0

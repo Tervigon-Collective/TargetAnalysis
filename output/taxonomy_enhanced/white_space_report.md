@@ -2,11 +2,11 @@
 
 ## Summary
 
-- **Focus brand:** a new day
-- **Competitor brands:** abercrombie
-- **Total gap cells:** 13
-- **Gap cells with competitor_count >= 2:** 13
-- **Top opportunity (gap):** Abercrombie x Kemo Sabe | statement_fashion | 35_50 (gap=100.0%)
+- **Focus brand:** focus brand
+- **Competitor brands:** competitors
+- **Total gap cells:** 162
+- **Gap cells with competitor_count >= 2:** 84
+- **Top opportunity (gap):** Awayday tote | minimal_modern | 75_plus (gap=100.0%)
 
 ## Visualizations
 
@@ -16,19 +16,20 @@
 - `white_space_price_band_by_brand.png` – Price band mix by brand (% of SKUs per band)
 - `white_space_category_by_brand.png` – Category coverage by brand (top categories)
 - `white_space_sku_by_mission_brand.png` – Mission share (%) by brand (% of each brand's SKUs per mission)
-- `white_space_target_vs_competitor.png` – a new day vs abercrombie by mission
+- `white_space_mission_sku_count_heatmap.png` – Mission SKU count by brand (Brand × Mission heatmap)
+- `white_space_target_vs_competitor.png` – focus brand vs competitors by mission
 
 ## Understanding the Charts
 
-**Why does a new day vs Competitors sometimes show a new day at 0%?**
+**Why does focus brand vs Competitors sometimes show focus brand at 0%?**
 When the focus brand has no (or few) products in mission cells where competitor brands invest, focus_density is 0%.
 Those blue bars with "0%" labels indicate white space: competitors are present, focus brand is absent = opportunity.
 
 **Density** = % of that brand's category SKUs in that (mission, price_band) cell.
-**Gap** = competitor_median_density - focus_density. Positive gap = a new day under-invested vs competitor brands.
+**Gap** = competitor_median_density - focus_density. Positive gap = focus brand under-invested vs competitor brands.
 
 ## Decision Guidance
 
 1. **High gap + high competitor_count** → Strong opportunity; consider sampling concepts.
 2. **High gap + low competitor_count** → Monitor; may be niche.
-3. **Low gap (a new day ahead)** → Maintain or optimize; no expansion needed.
+3. **Low gap (focus brand ahead)** → Maintain or optimize; no expansion needed.

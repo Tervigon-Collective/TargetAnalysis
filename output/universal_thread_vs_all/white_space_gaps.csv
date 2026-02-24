@@ -1,0 +1,141 @@
+category,mission,price_band,focus_count_in_cell,competitor_count_in_cell,focus_density,competitor_median_density,competitor_max_density,gap,target_count_in_cell,target_density
+Abercrombie x Kemo Sabe,statement_fashion,35_50,0,1,0.0,1.0,1.0,1.0,0,0.0
+Awayday tote,minimal_modern,75_plus,0,2,0.0,1.0,1.0,1.0,0,0.0
+Bottoms,value_mass,50_75,0,2,0.0,1.0,1.0,1.0,0,0.0
+"Candles, Grooming & Home",travel_utility,75_plus,0,2,0.0,1.0,1.0,1.0,0,0.0
+Clutches,weekend_bucket,0_15,0,1,0.0,1.0,1.0,1.0,0,0.0
+Handbags & Purses,campus_student,0_15,0,1,0.0,1.0,1.0,1.0,0,0.0
+Shoes & Accessories,micro_mini_impulse,35_50,0,5,0.0,1.0,1.0,1.0,0,0.0
+Sunglasses & Eyeglasses,slg_small_leathers,0_15,0,2,0.0,1.0,1.0,1.0,0,0.0
+Valet garment bag,travel_utility,35_50,0,1,0.0,1.0,1.0,1.0,0,0.0
+Valet multi garment bag,travel_utility,35_50,0,1,0.0,1.0,1.0,1.0,0,0.0
+boys,campus_student,75_plus,0,2,0.0,1.0,1.0,1.0,0,0.0
+product.do,everyday_crossbody,50_75,0,1,0.0,1.0,1.0,1.0,0,0.0
+Bags & Bag Charms,micro_mini_impulse,0_15,0,23,0.0,0.884615,0.884615,0.884615,0,0.0
+Fashion Backpacks,campus_student,25_35,0,2,0.0,0.666667,0.666667,0.666667,0,0.0
+Wallets,slg_small_leathers,0_15,0,4,0.0,0.666667,0.666667,0.666667,0,0.0
+Bags,minimal_modern,35_50,0,2,0.0,0.5,0.5,0.5,0,0.0
+Handbags & Purses,travel_utility,15_25,0,2,0.0,0.5,0.5,0.5,0,0.0
+Bags & Wallets,slg_small_leathers,75_plus,0,6,0.0,0.461538,0.461538,0.461538,0,0.0
+Clutches,occasion_glam,25_35,0,6,0.0,0.461538,0.461538,0.461538,0,0.0
+girls,micro_mini_impulse,75_plus,0,3,0.0,0.428571,0.428571,0.428571,0,0.0
+Satchels,convertible_multiway,35_50,0,2,0.0,0.4,0.4,0.4,0,0.0
+Shoulder Bags,weekend_bucket,25_35,1,8,0.0625,0.458334,0.75,0.395834,1,0.0625
+Bags & Wallets,oversized_carryall,75_plus,0,5,0.0,0.384615,0.384615,0.384615,0,0.0
+Fashion Backpacks,micro_mini_impulse,15_25,0,1,0.0,0.333333,0.333333,0.333333,0,0.0
+Clutches,occasion_glam,35_50,0,4,0.0,0.307692,0.307692,0.307692,0,0.0
+Bag Charms & Straps,micro_mini_impulse,0_15,6,18,0.6,0.9,1.0,0.3,6,0.6
+women,everyday_crossbody,75_plus,0,3,0.0,0.3,0.3,0.3,0,0.0
+women,weekend_bucket,75_plus,0,3,0.0,0.3,0.3,0.3,0,0.0
+girls,occasion_glam,75_plus,0,2,0.0,0.285714,0.285714,0.285714,0,0.0
+bags,occasion_glam,75_plus,0,17,0.0,0.269841,0.269841,0.269841,0,0.0
+Bags,campus_student,50_75,0,1,0.0,0.25,0.25,0.25,0,0.0
+Bags,statement_fashion,50_75,0,1,0.0,0.25,0.25,0.25,0,0.0
+Bags & Wallets,gym_active,75_plus,0,1,0.0,0.25,0.25,0.25,0,0.0
+Bags & Wallets,travel_utility,50_75,0,1,0.0,0.25,0.25,0.25,0,0.0
+Handbags & Purses,convertible_multiway,35_50,0,1,0.0,0.25,0.25,0.25,0,0.0
+Handbags & Purses,micro_mini_impulse,15_25,0,1,0.0,0.25,0.25,0.25,0,0.0
+Shoulder Bags,everyday_crossbody,15_25,0,1,0.0,0.25,0.25,0.25,0,0.0
+Crossbody & Messenger Bags,occasion_glam,25_35,0,2,0.0,0.2,0.2,0.2,0,0.0
+Satchels,everyday_crossbody,25_35,0,1,0.0,0.2,0.2,0.2,0,0.0
+Satchels,occasion_glam,25_35,0,1,0.0,0.2,0.2,0.2,0,0.0
+Satchels,statement_fashion,25_35,0,1,0.0,0.2,0.2,0.2,0,0.0
+women,occasion_glam,75_plus,0,2,0.0,0.2,0.2,0.2,0,0.0
+"Bags, Scarves & More",micro_mini_impulse,25_35,0,14,0.0,0.181818,0.181818,0.181818,0,0.0
+Crossbody & Messenger Bags,everyday_crossbody,25_35,3,4,0.230769,0.4,0.4,0.169231,3,0.230769
+Wallets,gym_active,0_15,0,1,0.0,0.166667,0.166667,0.166667,0,0.0
+Wallets,slg_small_leathers,15_25,0,1,0.0,0.166667,0.166667,0.166667,0,0.0
+Bags & Wallets,travel_utility,75_plus,0,2,0.0,0.163462,0.25,0.163462,0,0.0
+Bags & Wallets,work_tote,75_plus,0,2,0.0,0.163462,0.25,0.163462,0,0.0
+Bag Charms & Straps,occasion_glam,0_15,0,3,0.0,0.15,0.15,0.15,0,0.0
+Crossbody & Messenger Bags,festival_outdoor,15_25,0,1,0.0,0.142857,0.142857,0.142857,0,0.0
+Crossbody & Messenger Bags,weekend_bucket,15_25,0,1,0.0,0.142857,0.142857,0.142857,0,0.0
+girls,gifting_ready,50_75,0,1,0.0,0.142857,0.142857,0.142857,0,0.0
+girls,gym_active,75_plus,0,1,0.0,0.142857,0.142857,0.142857,0,0.0
+Shoulder Bags,value_mass,35_50,0,4,0.0,0.133333,0.133333,0.133333,0,0.0
+"Bags, Scarves & More",micro_mini_impulse,15_25,0,10,0.0,0.12987,0.12987,0.12987,0,0.0
+bags,luxury_signal,75_plus,0,8,0.0,0.126984,0.126984,0.126984,0,0.0
+Bags & Bag Charms,everyday_crossbody,75_plus,0,1,0.0,0.125,0.125,0.125,0,0.0
+Bags & Bag Charms,micro_mini_impulse,25_35,0,1,0.0,0.125,0.125,0.125,0,0.0
+Bags & Bag Charms,oversized_carryall,50_75,0,1,0.0,0.125,0.125,0.125,0,0.0
+Bags & Bag Charms,statement_fashion,75_plus,0,1,0.0,0.125,0.125,0.125,0,0.0
+Bags & Bag Charms,weekend_bucket,50_75,0,1,0.0,0.125,0.125,0.125,0,0.0
+Bags & Bag Charms,weekend_bucket,75_plus,0,1,0.0,0.125,0.125,0.125,0,0.0
+Bags & Bag Charms,work_tote,75_plus,0,1,0.0,0.125,0.125,0.125,0,0.0
+Beach Bags,eco_conscious,15_25,0,1,0.0,0.125,0.125,0.125,0,0.0
+Beach Bags,everyday_crossbody,25_35,0,1,0.0,0.125,0.125,0.125,0,0.0
+Beach Bags,gym_active,25_35,0,1,0.0,0.125,0.125,0.125,0,0.0
+Beach Bags,oversized_carryall,0_15,0,1,0.0,0.125,0.125,0.125,0,0.0
+Beach Bags,oversized_carryall,35_50,0,1,0.0,0.125,0.125,0.125,0,0.0
+Beach Bags,slg_small_leathers,25_35,0,1,0.0,0.125,0.125,0.125,0,0.0
+Beach Bags,travel_utility,15_25,0,1,0.0,0.125,0.125,0.125,0,0.0
+Beach Bags,weekend_bucket,35_50,0,1,0.0,0.125,0.125,0.125,0,0.0
+Bags & Bag Charms,micro_mini_impulse,15_25,0,4,0.0,0.120193,0.125,0.120193,0,0.0
+Shop All Accessories,micro_mini_impulse,15_25,0,5,0.0,0.111111,0.111111,0.111111,0,0.0
+Shop All Accessories,travel_utility,75_plus,0,5,0.0,0.111111,0.111111,0.111111,0,0.0
+Shop All Accessories,value_mass,15_25,0,5,0.0,0.111111,0.111111,0.111111,0,0.0
+bags,micro_mini_impulse,75_plus,0,7,0.0,0.111111,0.111111,0.111111,0,0.0
+Crossbody & Messenger Bags,slg_small_leathers,15_25,0,1,0.0,0.1,0.1,0.1,0,0.0
+Shoulder Bags,micro_mini_impulse,25_35,0,3,0.0,0.1,0.1,0.1,0,0.0
+women,oversized_carryall,75_plus,0,1,0.0,0.1,0.1,0.1,0,0.0
+women,work_tote,75_plus,0,1,0.0,0.1,0.1,0.1,0,0.0
+Crossbody & Messenger Bags,everyday_crossbody,15_25,4,6,0.307692,0.407143,0.714286,0.099451,4,0.307692
+bags,everyday_crossbody,75_plus,0,6,0.0,0.095238,0.095238,0.095238,0,0.0
+bags,weekend_bucket,75_plus,0,6,0.0,0.095238,0.095238,0.095238,0,0.0
+Shop All Accessories,travel_utility,15_25,0,4,0.0,0.088889,0.088889,0.088889,0,0.0
+"Bags, Scarves & More",micro_mini_impulse,0_15,0,6,0.0,0.077922,0.077922,0.077922,0,0.0
+"Bags, Scarves & More",minimal_modern,35_50,0,6,0.0,0.077922,0.077922,0.077922,0,0.0
+Clutches,micro_mini_impulse,0_15,0,1,0.0,0.076923,0.076923,0.076923,0,0.0
+Clutches,occasion_glam,15_25,0,1,0.0,0.076923,0.076923,0.076923,0,0.0
+Clutches,slg_small_leathers,0_15,0,1,0.0,0.076923,0.076923,0.076923,0,0.0
+Shop All Accessories,campus_student,15_25,0,3,0.0,0.066667,0.066667,0.066667,0,0.0
+Shop All Accessories,campus_student,35_50,0,3,0.0,0.066667,0.066667,0.066667,0,0.0
+Shop All Accessories,micro_mini_impulse,35_50,0,3,0.0,0.066667,0.066667,0.066667,0,0.0
+Shop All Accessories,travel_utility,25_35,0,3,0.0,0.066667,0.066667,0.066667,0,0.0
+Shoulder Bags,occasion_glam,25_35,0,2,0.0,0.066667,0.066667,0.066667,0,0.0
+"Bags, Scarves & More",micro_mini_impulse,35_50,0,5,0.0,0.064935,0.064935,0.064935,0,0.0
+"Bags, Scarves & More",minimal_modern,50_75,0,5,0.0,0.064935,0.064935,0.064935,0,0.0
+"Bags, Scarves & More",weekend_bucket,15_25,0,5,0.0,0.064935,0.064935,0.064935,0,0.0
+"Bags, Scarves & More",weekend_bucket,50_75,0,5,0.0,0.064935,0.064935,0.064935,0,0.0
+bags,work_tote,75_plus,0,4,0.0,0.063492,0.063492,0.063492,0,0.0
+"Bags, Scarves & More",weekend_bucket,25_35,0,4,0.0,0.051948,0.051948,0.051948,0,0.0
+bags,gym_active,75_plus,0,3,0.0,0.047619,0.047619,0.047619,0,0.0
+bags,oversized_carryall,75_plus,0,3,0.0,0.047619,0.047619,0.047619,0,0.0
+Crossbody & Messenger Bags,micro_mini_impulse,25_35,2,2,0.153846,0.2,0.2,0.046154,2,0.153846
+Shop All Accessories,campus_student,25_35,0,2,0.0,0.044444,0.044444,0.044444,0,0.0
+Shop All Accessories,everyday_crossbody,25_35,0,2,0.0,0.044444,0.044444,0.044444,0,0.0
+Shop All Accessories,festival_outdoor,25_35,0,2,0.0,0.044444,0.044444,0.044444,0,0.0
+Shop All Accessories,gym_active,25_35,0,2,0.0,0.044444,0.044444,0.044444,0,0.0
+"Bags, Scarves & More",eco_conscious,35_50,0,3,0.0,0.038961,0.038961,0.038961,0,0.0
+"Bags, Scarves & More",minimal_modern,15_25,0,3,0.0,0.038961,0.038961,0.038961,0,0.0
+"Bags, Scarves & More",minimal_modern,25_35,0,3,0.0,0.038961,0.038961,0.038961,0,0.0
+"Bags, Scarves & More",weekend_bucket,35_50,0,3,0.0,0.038961,0.038961,0.038961,0,0.0
+Shoulder Bags,eco_conscious,25_35,0,1,0.0,0.033333,0.033333,0.033333,0,0.0
+Shoulder Bags,occasion_glam,35_50,0,1,0.0,0.033333,0.033333,0.033333,0,0.0
+Shoulder Bags,statement_fashion,15_25,0,1,0.0,0.033333,0.033333,0.033333,0,0.0
+Shoulder Bags,statement_fashion,35_50,0,1,0.0,0.033333,0.033333,0.033333,0,0.0
+Shoulder Bags,work_tote,25_35,0,1,0.0,0.033333,0.033333,0.033333,0,0.0
+Shoulder Bags,work_tote,35_50,0,1,0.0,0.033333,0.033333,0.033333,0,0.0
+bags,convertible_multiway,75_plus,0,2,0.0,0.031746,0.031746,0.031746,0,0.0
+bags,minimal_modern,75_plus,0,2,0.0,0.031746,0.031746,0.031746,0,0.0
+bags,travel_utility,75_plus,0,2,0.0,0.031746,0.031746,0.031746,0,0.0
+"Bags, Scarves & More",travel_utility,75_plus,0,2,0.0,0.025974,0.025974,0.025974,0,0.0
+Shop All Accessories,everyday_crossbody,0_15,0,1,0.0,0.022222,0.022222,0.022222,0,0.0
+Shop All Accessories,micro_mini_impulse,0_15,0,1,0.0,0.022222,0.022222,0.022222,0,0.0
+Shop All Accessories,oversized_carryall,25_35,0,1,0.0,0.022222,0.022222,0.022222,0,0.0
+Shop All Accessories,travel_utility,35_50,0,1,0.0,0.022222,0.022222,0.022222,0,0.0
+Shop All Accessories,travel_utility,50_75,0,1,0.0,0.022222,0.022222,0.022222,0,0.0
+Shop All Accessories,weekend_bucket,25_35,0,1,0.0,0.022222,0.022222,0.022222,0,0.0
+bags,eco_conscious,75_plus,0,1,0.0,0.015873,0.015873,0.015873,0,0.0
+bags,statement_fashion,75_plus,0,1,0.0,0.015873,0.015873,0.015873,0,0.0
+bags,value_mass,25_35,0,1,0.0,0.015873,0.015873,0.015873,0,0.0
+"Bags, Scarves & More",eco_conscious,50_75,0,1,0.0,0.012987,0.012987,0.012987,0,0.0
+"Bags, Scarves & More",everyday_crossbody,25_35,0,1,0.0,0.012987,0.012987,0.012987,0,0.0
+"Bags, Scarves & More",work_tote,75_plus,0,1,0.0,0.012987,0.012987,0.012987,0,0.0
+Shoulder Bags,everyday_crossbody,25_35,1,2,0.0625,0.066667,0.066667,0.004167,1,0.0625
+Shoulder Bags,everyday_crossbody,35_50,1,1,0.0625,0.033333,0.033333,-0.029167,1,0.0625
+Shoulder Bags,micro_mini_impulse,15_25,1,1,0.0625,0.033333,0.033333,-0.029167,1,0.0625
+Shoulder Bags,weekend_bucket,15_25,1,1,0.0625,0.033333,0.033333,-0.029167,1,0.0625
+Bag Charms & Straps,convertible_multiway,0_15,1,1,0.1,0.05,0.05,-0.05,1,0.1
+Shoulder Bags,eco_conscious,35_50,2,1,0.125,0.033333,0.033333,-0.091667,2,0.125
+Shoulder Bags,weekend_bucket,35_50,4,4,0.25,0.133333,0.133333,-0.116667,4,0.25

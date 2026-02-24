@@ -1,0 +1,43 @@
+category,mission,price_band,focus_count_in_cell,competitor_count_in_cell,focus_density,competitor_median_density,competitor_max_density,gap,target_count_in_cell,target_density
+Shoes & Accessories,micro_mini_impulse,35_50,0,5,0.0,1.0,1.0,1.0,0,0.0
+product.do,everyday_crossbody,50_75,0,1,0.0,1.0,1.0,1.0,0,0.0
+Bags & Bag Charms,micro_mini_impulse,0_15,0,23,0.0,0.884615,0.884615,0.884615,0,0.0
+Bags,minimal_modern,35_50,0,2,0.0,0.5,0.5,0.5,0,0.0
+Bags,campus_student,50_75,0,1,0.0,0.25,0.25,0.25,0,0.0
+Bags,statement_fashion,50_75,0,1,0.0,0.25,0.25,0.25,0,0.0
+"Bags, Scarves & More",micro_mini_impulse,25_35,0,14,0.0,0.181818,0.181818,0.181818,0,0.0
+"Bags, Scarves & More",micro_mini_impulse,15_25,0,10,0.0,0.12987,0.12987,0.12987,0,0.0
+Bags & Bag Charms,micro_mini_impulse,15_25,0,3,0.0,0.115385,0.115385,0.115385,0,0.0
+Shop All Accessories,micro_mini_impulse,15_25,0,5,0.0,0.111111,0.111111,0.111111,0,0.0
+Shop All Accessories,travel_utility,75_plus,0,5,0.0,0.111111,0.111111,0.111111,0,0.0
+Shop All Accessories,value_mass,15_25,0,5,0.0,0.111111,0.111111,0.111111,0,0.0
+Shop All Accessories,travel_utility,15_25,0,4,0.0,0.088889,0.088889,0.088889,0,0.0
+"Bags, Scarves & More",micro_mini_impulse,0_15,0,6,0.0,0.077922,0.077922,0.077922,0,0.0
+"Bags, Scarves & More",minimal_modern,35_50,0,6,0.0,0.077922,0.077922,0.077922,0,0.0
+Shop All Accessories,campus_student,15_25,0,3,0.0,0.066667,0.066667,0.066667,0,0.0
+Shop All Accessories,campus_student,35_50,0,3,0.0,0.066667,0.066667,0.066667,0,0.0
+Shop All Accessories,micro_mini_impulse,35_50,0,3,0.0,0.066667,0.066667,0.066667,0,0.0
+Shop All Accessories,travel_utility,25_35,0,3,0.0,0.066667,0.066667,0.066667,0,0.0
+"Bags, Scarves & More",micro_mini_impulse,35_50,0,5,0.0,0.064935,0.064935,0.064935,0,0.0
+"Bags, Scarves & More",minimal_modern,50_75,0,5,0.0,0.064935,0.064935,0.064935,0,0.0
+"Bags, Scarves & More",weekend_bucket,15_25,0,5,0.0,0.064935,0.064935,0.064935,0,0.0
+"Bags, Scarves & More",weekend_bucket,50_75,0,5,0.0,0.064935,0.064935,0.064935,0,0.0
+"Bags, Scarves & More",weekend_bucket,25_35,0,4,0.0,0.051948,0.051948,0.051948,0,0.0
+Shop All Accessories,campus_student,25_35,0,2,0.0,0.044444,0.044444,0.044444,0,0.0
+Shop All Accessories,everyday_crossbody,25_35,0,2,0.0,0.044444,0.044444,0.044444,0,0.0
+Shop All Accessories,festival_outdoor,25_35,0,2,0.0,0.044444,0.044444,0.044444,0,0.0
+Shop All Accessories,gym_active,25_35,0,2,0.0,0.044444,0.044444,0.044444,0,0.0
+"Bags, Scarves & More",eco_conscious,35_50,0,3,0.0,0.038961,0.038961,0.038961,0,0.0
+"Bags, Scarves & More",minimal_modern,15_25,0,3,0.0,0.038961,0.038961,0.038961,0,0.0
+"Bags, Scarves & More",minimal_modern,25_35,0,3,0.0,0.038961,0.038961,0.038961,0,0.0
+"Bags, Scarves & More",weekend_bucket,35_50,0,3,0.0,0.038961,0.038961,0.038961,0,0.0
+"Bags, Scarves & More",travel_utility,75_plus,0,2,0.0,0.025974,0.025974,0.025974,0,0.0
+Shop All Accessories,everyday_crossbody,0_15,0,1,0.0,0.022222,0.022222,0.022222,0,0.0
+Shop All Accessories,micro_mini_impulse,0_15,0,1,0.0,0.022222,0.022222,0.022222,0,0.0
+Shop All Accessories,oversized_carryall,25_35,0,1,0.0,0.022222,0.022222,0.022222,0,0.0
+Shop All Accessories,travel_utility,35_50,0,1,0.0,0.022222,0.022222,0.022222,0,0.0
+Shop All Accessories,travel_utility,50_75,0,1,0.0,0.022222,0.022222,0.022222,0,0.0
+Shop All Accessories,weekend_bucket,25_35,0,1,0.0,0.022222,0.022222,0.022222,0,0.0
+"Bags, Scarves & More",eco_conscious,50_75,0,1,0.0,0.012987,0.012987,0.012987,0,0.0
+"Bags, Scarves & More",everyday_crossbody,25_35,0,1,0.0,0.012987,0.012987,0.012987,0,0.0
+"Bags, Scarves & More",work_tote,75_plus,0,1,0.0,0.012987,0.012987,0.012987,0,0.0

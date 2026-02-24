@@ -19,6 +19,7 @@ CLI (ChromaDB default, -i for CSV):
     python scripts/mission_density_engine.py -i output/products_mission_enriched.csv
     python scripts/mission_density_engine.py --focus-brand "universal thread" --competitors gap,jcrew
     python scripts/mission_density_engine.py --brands "universal thread",gap,jcrew -i output/products_mission_enriched.csv
+    python scripts/mission_density_engine.py --focus-brand target --target-source-aggregate -o output/target_vs_all -i output/products_mission_enriched.csv
 """
 from __future__ import annotations
 
@@ -153,6 +154,28 @@ def filter_rows_by_brands(
     return [r for r in rows if _get_brand_for_grouping(r) in filter_set]
 
 
+def _normalize_brand_for_match(s: str) -> str:
+    """Normalize brand string for matching (lowercase, strip ™®)."""
+    return (s or "").lower().strip().replace("\u2122", "").replace("\u00ae", "").strip()
+
+
+def filter_rows_exclude_brands(
+    rows: list[dict],
+    exclude_brands: list[str],
+) -> list[dict]:
+    """Exclude rows whose brand matches any of exclude_brands (case-insensitive, ™® ignored)."""
+    if not exclude_brands:
+        return rows
+    exclude_norm = {_normalize_brand_for_match(b) for b in exclude_brands if b and str(b).strip()}
+    if not exclude_norm:
+        return rows
+    out = [r for r in rows if _normalize_brand_for_match(_get_brand_for_grouping(r)) not in exclude_norm]
+    excluded = len(rows) - len(out)
+    if excluded:
+        logger.info("Excluded %d rows (brands: %s)", excluded, sorted(exclude_brands))
+    return out
+
+
 def _infer_focus_brand_from_target_rows(rows: list[dict]) -> str | None:
     """If focus is 'target' (retailer), infer focus_brand from most common brand in Target-sourced rows."""
     target_rows = [r for r in rows if _s(r.get("source")).lower() == "target"]
@@ -172,7 +195,9 @@ def compute_mission_density_and_gaps(
     focus_brand: str | None = None,
     competitor_brands: list[str] | None = None,
     brands_filter: list[str] | None = None,
+    exclude_brands: list[str] | None = None,
     target_brand: str | None = None,  # deprecated; use focus_brand
+    target_source_aggregate: bool = False,
 ) -> tuple[list[dict], list[dict]]:
     """
     Compute mission density by cell and white space gaps (brand vs brand).
@@ -187,7 +212,10 @@ def compute_mission_density_and_gaps(
         focus_brand: Brand to analyze for gaps (e.g. "universal thread", "gap"). Overrides config.
         competitor_brands: Other brands to compare (e.g. gap, jcrew). If None, all non-focus are competitors.
         brands_filter: If set, only include rows whose brand (grouping entity) is in this list.
+        exclude_brands: Brands to exclude from analysis (e.g. tna, the super puff™). Applied first.
         target_brand: Deprecated. Use focus_brand. If "target", infers focus from Target-sourced rows.
+        target_source_aggregate: If True and focus_brand="target", aggregate all Target-sourced rows as "Target"
+            and compare vs all competitor brands. Does not infer a single Target brand.
 
     Returns:
         (cells, gaps) - list of cell dicts, list of gap dicts.
@@ -197,23 +225,33 @@ def compute_mission_density_and_gaps(
     comp_set = {b.lower().strip() for b in (competitor_brands or [])}
     filter_set = {b.lower().strip() for b in (brands_filter or [])}
 
+    # Exclude brands not in scope (e.g. tna, the super puff™) – applied first
+    exclude_list = exclude_brands or config.get("exclude_brands") or []
+    if exclude_list:
+        rows = filter_rows_exclude_brands(rows, exclude_list)
+
     if filter_set:
         rows = filter_rows_by_brands(rows, list(filter_set))
         logger.info("Filtered to %d rows (brands: %s)", len(rows), sorted(filter_set))
 
-    # Infer focus_brand when "target" (retailer) is specified
-    if focus == "target":
+    # Infer focus_brand when "target" (retailer) is specified, unless target_source_aggregate
+    if focus == "target" and not target_source_aggregate:
         inferred = _infer_focus_brand_from_target_rows(rows)
         if inferred:
             focus = inferred
             logger.info("Inferred focus_brand from Target retailer rows: %s", focus)
         else:
             logger.warning("focus_brand='target' but no Target-sourced rows with brand; gap analysis may be empty.")
+    elif focus == "target" and target_source_aggregate:
+        logger.info("Target source aggregate mode: all Target-sourced brands grouped as 'Target' vs all competitors.")
 
-    # Assign per row: use brand for grouping (never target retailer as brand)
+    # Assign per row: use brand for grouping; when target_source_aggregate, Target rows use _brand="target"
     for r in rows:
         r["_category"] = _get_category(r)
-        r["_brand"] = _get_brand_for_grouping(r)
+        if target_source_aggregate and _s(r.get("source")).lower() == "target":
+            r["_brand"] = "target"
+        else:
+            r["_brand"] = _get_brand_for_grouping(r)
         r["_mission"] = _get_primary_mission(r)
         price = r.get("price_current") or r.get("price") or 0
         r["_price_band"] = _assign_price_band(price, config)
@@ -342,6 +380,17 @@ def compute_mission_density_and_gaps(
     return cells, gaps
 
 
+# Greyscale for heatmaps; muted blues for bar charts and other graphs
+HEATMAP_CMAP = "Greys"
+# Earth Blend palette for bar charts and other graphs (not heatmaps)
+CHART_COLORS = ["#CC9966", "#6699CC", "#99CC66", "#CC6699", "#9966CC"]
+
+
+def _caption_below(fig: Any, text: str, fontsize: int = 8) -> None:
+    """Place title and how-to-read text below the graph."""
+    fig.text(0.5, 0.01, text, ha="center", va="bottom", transform=fig.transFigure, fontsize=fontsize)
+
+
 def plot_white_space_visuals(
     cells: list[dict],
     gaps: list[dict],
@@ -383,13 +432,15 @@ def plot_white_space_visuals(
         top["cell_label"] = top["category"].str[:25] + " | " + top["mission"] + " | " + top["price_band"]
         fig, ax = plt.subplots(figsize=(10, max(6, len(top) * 0.35)))
         y_pos = np.arange(len(top))
-        ax.barh(y_pos, top["gap"].values * 100, color="coral", alpha=0.85)
+        ax.barh(y_pos, top["gap"].values * 100, color=CHART_COLORS[0], alpha=0.85)
+        ax.set_title("Top White Space Opportunities (" + target_label + " Under-Invested)")
         ax.set_yticks(y_pos)
         ax.set_yticklabels(top["cell_label"].tolist(), fontsize=9)
         ax.set_xlabel("Gap (% density: Competitor Median - " + target_label + ")")
-        ax.set_title("Top White Space Opportunities (" + target_label + " Under-Invested)")
         ax.invert_yaxis()
-        plt.tight_layout()
+        plt.tight_layout(rect=[0, 0.08, 1, 1])
+        _caption_below(fig, "How to read: Each bar = one cell (category | mission | price band). Longer bar = bigger gap = "
+            + target_label + " under-invested vs competitors. Sorted by gap descending.")
         plt.savefig(output_dir / "white_space_top_opportunities.png", dpi=120, bbox_inches="tight")
         plt.close()
         logger.info("  → white_space_top_opportunities.png")
@@ -401,19 +452,34 @@ def plot_white_space_visuals(
         ).fillna(0)
         band_order = ["0_15", "15_25", "25_35", "35_50", "50_75", "75_plus"]
         pivot = pivot.reindex(columns=[c for c in band_order if c in pivot.columns], fill_value=0)
+        # Sort missions by mean gap descending (dominant opportunities first)
+        if not pivot.empty:
+            pivot = pivot.reindex(pivot.mean(axis=1).sort_values(ascending=False).index)
         if not pivot.empty:
             fig, ax = plt.subplots(figsize=(10, max(5, pivot.shape[0] * 0.4)))
+            gap_vals = pivot.values * 100
+            vmin, vmax = float(np.nanmin(gap_vals)), float(np.nanmax(gap_vals))
             if HAS_SEABORN:
-                sns.heatmap(pivot * 100, annot=True, fmt=".0f", ax=ax, cmap="YlOrRd", cbar_kws={"label": "Mean Gap (%)"})
+                sns.heatmap(pivot * 100, annot=False, ax=ax, cmap=HEATMAP_CMAP, vmin=vmin, vmax=vmax, cbar_kws={"label": "Mean Gap (%)"})
+                ax.tick_params(axis="x", labeltop=False, labelbottom=True)
             else:
-                im = ax.imshow(pivot.values * 100, aspect="auto", cmap="YlOrRd")
+                im = ax.imshow(gap_vals, aspect="auto", cmap=HEATMAP_CMAP, vmin=vmin, vmax=vmax)
                 plt.colorbar(im, ax=ax, label="Mean Gap (%)")
                 ax.set_yticks(np.arange(pivot.shape[0]))
                 ax.set_yticklabels(pivot.index)
                 ax.set_xticks(np.arange(pivot.shape[1]))
                 ax.set_xticklabels(pivot.columns, rotation=45, ha="right")
+            # Adaptive annotation color for greyscale: white on dark, black on light
+            for i in range(pivot.shape[0]):
+                for j in range(pivot.shape[1]):
+                    val = float(gap_vals[i, j])
+                    norm = (val - vmin) / (vmax - vmin) if vmax > vmin else 0
+                    color = "white" if norm > 0.5 else "black"
+                    ax.text(j, i, f"{val:.0f}", ha="center", va="center", color=color, fontsize=9)
             ax.set_title("Gap by Mission × Price Band (where opportunities concentrate)")
-            plt.tight_layout()
+            plt.tight_layout(rect=[0, 0.08, 1, 1])
+            _caption_below(fig, "How to read: Shade = mean gap (%). Darker = larger opportunity. Numbers show gap %. "
+                "Rows sorted by mean gap (highest first).")
             plt.savefig(output_dir / "white_space_gap_heatmap.png", dpi=120, bbox_inches="tight")
             plt.close()
             logger.info("  → white_space_gap_heatmap.png")
@@ -425,19 +491,22 @@ def plot_white_space_visuals(
         gap_by_band.columns = ["price_band", "mean_gap", "cell_count", "competitor_skus"]
         gap_by_band = gap_by_band[gap_by_band["price_band"].isin(band_order)]
         gap_by_band["price_band"] = pd.Categorical(gap_by_band["price_band"], categories=band_order, ordered=True)
-        gap_by_band = gap_by_band.sort_values("price_band")
+        # Sort by mean gap descending (highest opportunity bands first)
+        gap_by_band = gap_by_band.sort_values("mean_gap", ascending=False)
         if not gap_by_band.empty:
             fig, ax = plt.subplots(figsize=(9, 5))
             x = np.arange(len(gap_by_band))
-            bars = ax.bar(x, gap_by_band["mean_gap"].values * 100, color="coral", alpha=0.85, edgecolor="darkred")
+            bars = ax.bar(x, gap_by_band["mean_gap"].values * 100, color=CHART_COLORS[1], alpha=0.85, edgecolor=CHART_COLORS[4])
             ax.set_xticks(x)
+            ax.set_title("White Space Gap by Price Band (higher = more opportunity)")
             ax.set_xticklabels(gap_by_band["price_band"], rotation=0)
             ax.set_xlabel("Price Band ($)")
             ax.set_ylabel("Mean Gap (%)")
-            ax.set_title("White Space Gap by Price Band (higher = more opportunity)")
             for i, (g, c) in enumerate(zip(gap_by_band["mean_gap"] * 100, gap_by_band["cell_count"])):
                 ax.text(i, g + 1, f"{g:.1f}%\n({int(c)} cells)", ha="center", va="bottom", fontsize=8)
-            plt.tight_layout()
+            plt.tight_layout(rect=[0, 0.08, 1, 1])
+            _caption_below(fig, "How to read: Taller bar = higher mean gap for that price band. Numbers show % and cell count. "
+                "Sorted by opportunity (highest first).")
             plt.savefig(output_dir / "white_space_gap_by_price_band.png", dpi=120, bbox_inches="tight")
             plt.close()
             logger.info("  → white_space_gap_by_price_band.png")
@@ -451,14 +520,18 @@ def plot_white_space_visuals(
         band_order = ["0_15", "15_25", "25_35", "35_50", "50_75", "75_plus"]
         pivot_band = band_by_brand.pivot(index=col, columns="price_band", values="pct").fillna(0)
         pivot_band = pivot_band.reindex(columns=[c for c in band_order if c in pivot_band.columns], fill_value=0)
+        # Sort brands by total SKU share (dominant brands first)
+        pivot_band = pivot_band.reindex(pivot_band.sum(axis=1).sort_values(ascending=False).index)
         if pivot_band.shape[0] > 0 and pivot_band.shape[1] > 0:
             fig, ax = plt.subplots(figsize=(10, max(5, pivot_band.shape[0] * 0.5)))
-            pivot_band.plot(kind="barh", ax=ax, stacked=True, width=0.75)
+            ax.set_title("Price Band Mix by Brand (% of each brand's SKUs per price band)")
+            pivot_band.plot(kind="barh", ax=ax, stacked=True, width=0.9, color=CHART_COLORS)
             ax.set_xlabel("Share of Brand Assortment (%)")
             ax.set_ylabel("Brand")
-            ax.set_title("Price Band Mix by Brand (% of each brand's SKUs per price band)")
             ax.legend(title="Price Band ($)", bbox_to_anchor=(1.02, 1), loc="upper left", fontsize=8)
-            plt.tight_layout()
+            plt.tight_layout(rect=[0, 0.08, 1, 1])
+            _caption_below(fig, "How to read: Stacked bars sum to 100% per brand. Segments show where each brand plays by price. "
+                "Brands sorted by total SKUs (largest first).")
             plt.savefig(output_dir / "white_space_price_band_by_brand.png", dpi=120, bbox_inches="tight")
             plt.close()
             logger.info("  → white_space_price_band_by_brand.png")
@@ -470,14 +543,18 @@ def plot_white_space_visuals(
         top_cats = cat_by_brand.groupby("category")["sku_count"].sum().nlargest(12).index.tolist()
         df_cat = cat_by_brand[cat_by_brand["category"].isin(top_cats)]
         pivot_cat = df_cat.pivot(index="category", columns=col, values="sku_count").fillna(0)
+        # Sort categories by total SKU count descending (dominant categories first)
+        pivot_cat = pivot_cat.reindex(pivot_cat.sum(axis=1).sort_values(ascending=False).index)
         if pivot_cat.shape[0] > 0 and pivot_cat.shape[1] > 0:
             fig, ax = plt.subplots(figsize=(10, max(5, pivot_cat.shape[0] * 0.35)))
-            pivot_cat.plot(kind="barh", ax=ax, stacked=False, width=0.8)
+            ax.set_title("Category Coverage by Brand (top categories by total SKUs)")
+            pivot_cat.plot(kind="barh", ax=ax, stacked=False, width=0.9, color=CHART_COLORS)
             ax.set_xlabel("SKU Count")
             ax.set_ylabel("Category")
-            ax.set_title("Category Coverage by Brand (top categories by total SKUs)")
             ax.legend(title="Brand", bbox_to_anchor=(1.02, 1), loc="upper left", fontsize=8)
-            plt.tight_layout()
+            plt.tight_layout(rect=[0, 0.08, 1, 1])
+            _caption_below(fig, "How to read: Bars show SKU count per brand in each category. Compare brand presence across categories. "
+                "Categories sorted by total SKUs (largest first).")
             plt.savefig(output_dir / "white_space_category_by_brand.png", dpi=120, bbox_inches="tight")
             plt.close()
             logger.info("  → white_space_category_by_brand.png")
@@ -491,17 +568,69 @@ def plot_white_space_visuals(
         sku_by_src_mission["pct"] = (sku_by_src_mission["sku_count"] / sku_by_src_mission["brand_total"].replace(0, 1)) * 100
         pivot_pct = sku_by_src_mission.pivot(index="mission", columns=col, values="pct").fillna(0)
         if pivot_pct.shape[0] > 0 and pivot_pct.shape[1] > 0:
+            # Sort missions by total share across brands (dominant missions first), keep top 14
             pivot_pct = pivot_pct.loc[pivot_pct.sum(axis=1).sort_values(ascending=False).head(14).index]
             fig, ax = plt.subplots(figsize=(12, 7))
-            pivot_pct.plot(kind="barh", ax=ax, stacked=False, width=0.8)
+            ax.set_title("Mission Share (%) by Brand (% of each brand's SKUs in each mission)")
+            pivot_pct.plot(kind="barh", ax=ax, stacked=False, width=0.9, color=CHART_COLORS)
             ax.set_xlabel("Share of Brand Assortment (%)")
             ax.set_ylabel("Mission")
-            ax.set_title("Mission Share (%) by Brand (% of each brand's SKUs in each mission)")
             ax.legend(title="Brand", bbox_to_anchor=(1.02, 1), loc="upper left")
-            plt.tight_layout()
+            plt.tight_layout(rect=[0, 0.08, 1, 1])
+            _caption_below(fig, "How to read: Each row = one mission. Bars show % of that brand's assortment in the mission. "
+                "Missions sorted by total share across brands (dominant first).")
             plt.savefig(output_dir / "white_space_sku_by_mission_brand.png", dpi=120, bbox_inches="tight")
             plt.close()
             logger.info("  → white_space_sku_by_mission_brand.png")
+
+        # 4b) Mission × Brand heatmap: color = density (%), annotations = SKU count (for reference)
+        pivot_sku = sku_by_src_mission.pivot(index=col, columns="mission", values="sku_count").fillna(0)
+        pivot_pct = sku_by_src_mission.pivot(index=col, columns="mission", values="pct").fillna(0)
+        if pivot_sku.shape[0] > 0 and pivot_sku.shape[1] > 0:
+            # Top missions by total SKU count; sort brands by total SKU (dominant brands first)
+            top_missions = pivot_sku.sum(axis=0).sort_values(ascending=False).head(14).index.tolist()
+            pivot_sku = pivot_sku[[c for c in top_missions if c in pivot_sku.columns]]
+            pivot_pct = pivot_pct[[c for c in top_missions if c in pivot_pct.columns]].reindex_like(pivot_sku).fillna(0)
+            pivot_sku = pivot_sku.reindex(pivot_sku.sum(axis=1).sort_values(ascending=False).index)
+            pivot_pct = pivot_pct.reindex(pivot_sku.index)
+            if not pivot_sku.empty:
+                fig, ax = plt.subplots(figsize=(12, max(5, pivot_sku.shape[0] * 0.5)))
+                vmin, vmax = float(pivot_pct.min().min()), float(pivot_pct.max().max())
+                if HAS_SEABORN:
+                    sns.heatmap(
+                        pivot_pct,
+                        annot=False,
+                        ax=ax,
+                        cmap=HEATMAP_CMAP,
+                        vmin=vmin,
+                        vmax=vmax,
+                        cbar_kws={"label": "Mission Density (%)"},
+                    )
+                    ax.tick_params(axis="x", labeltop=False, labelbottom=True)
+                else:
+                    im = ax.imshow(pivot_pct.values, aspect="auto", cmap=HEATMAP_CMAP, vmin=vmin, vmax=vmax)
+                    plt.colorbar(im, ax=ax, label="Mission Density (%)")
+                # Annotations with adaptive color: white on dark cells, black on light (readable on greyscale)
+                for i in range(pivot_sku.shape[0]):
+                    for j in range(pivot_sku.shape[1]):
+                        val = float(pivot_pct.values[i, j])
+                        norm = (val - vmin) / (vmax - vmin) if vmax > vmin else 0
+                        color = "white" if norm > 0.5 else "black"
+                        ax.text(j, i, f"{int(pivot_sku.values[i, j])}", ha="center", va="center", color=color, fontsize=9)
+                if not HAS_SEABORN:
+                    ax.set_yticks(np.arange(pivot_sku.shape[0]))
+                    ax.set_yticklabels(pivot_sku.index)
+                    ax.set_xticks(np.arange(pivot_sku.shape[1]))
+                    ax.set_xticklabels(pivot_sku.columns, rotation=45, ha="right")
+                ax.set_xlabel("Mission")
+                ax.set_ylabel("Brand")
+                ax.set_title("Mission Density (%) by Brand (box labels = SKU count)")
+                plt.tight_layout(rect=[0, 0.08, 1, 1])
+                _caption_below(fig, "How to read: Shade = % of brand's category SKUs in that mission. Numbers = SKU count. "
+                    "Darker = stronger focus. Rows (brands) and columns (missions) sorted by dominance.")
+                plt.savefig(output_dir / "white_space_mission_sku_count_heatmap.png", dpi=120, bbox_inches="tight")
+                plt.close()
+                logger.info("  → white_space_mission_sku_count_heatmap.png")
 
     # 5) Focus vs Competitor mission share (%) - grouped bar (avoids category mismatch from gap-based logic)
     # Compute mission-level % from cells so focus brand shows real share even when retailer category names differ
@@ -522,28 +651,32 @@ def plot_white_space_visuals(
             comp_mission = comp_df.groupby("mission")["pct"].median()
             focus_vals = focus_mission.reindex(all_missions, fill_value=0).fillna(0)
             comp_vals = comp_mission.reindex(all_missions, fill_value=0).fillna(0)
-            # Top 12 missions by competitor median
-            top_missions = comp_vals.sort_values(ascending=False).head(12).index.tolist()
+            # Top 12 missions by competitor median, then sort by gap (competitor - focus) descending for readability
+            top_12 = comp_vals.sort_values(ascending=False).head(12)
+            gap_by_mission = (comp_vals - focus_vals).reindex(top_12.index).fillna(0)
+            top_missions = gap_by_mission.sort_values(ascending=False).index.tolist()
             if top_missions:
                 t_vals = focus_vals.reindex(top_missions, fill_value=0).values
                 c_vals = comp_vals.reindex(top_missions, fill_value=0).values
                 t_plot = np.maximum(t_vals, 0.5)
                 c_plot = np.maximum(c_vals, 0.5)
                 x = np.arange(len(top_missions))
-                w = 0.35
+                w = 0.42
                 fig, ax = plt.subplots(figsize=(12, 7))
-                ax.bar(x - w/2, t_plot, width=w, label=target_label + " (%)", color="steelblue", alpha=0.9)
-                ax.bar(x + w/2, c_plot, width=w, label=competitor_label + " Median (%)", color="coral", alpha=0.85)
+                ax.bar(x - w/2, t_plot, width=w, label=target_label + " (%)", color=CHART_COLORS[0], alpha=0.9)
+                ax.bar(x + w/2, c_plot, width=w, label=competitor_label + " Median (%)", color=CHART_COLORS[2], alpha=0.85)
                 for i, (tv, cv) in enumerate(zip(t_vals, c_vals)):
                     ax.text(x[i] - w/2, t_plot[i] + 0.5, f"{tv:.1f}%", ha="center", va="bottom", fontsize=8)
                     ax.text(x[i] + w/2, c_plot[i] + 0.5, f"{cv:.1f}%", ha="center", va="bottom", fontsize=8)
+                ax.set_title(target_label + " vs " + competitor_label + " by Mission (Key Missions)")
                 ax.set_xticks(x)
                 ax.set_xticklabels(top_missions, rotation=45, ha="right")
                 ax.set_ylabel("Share of Brand Assortment (%)")
-                ax.set_title(target_label + " vs " + competitor_label + " by Mission (Key Missions)")
                 ax.legend()
                 ax.set_ylim(0, max(c_plot.max(), t_plot.max()) * 1.2)
-                plt.tight_layout()
+                plt.tight_layout(rect=[0, 0.12, 1, 1])
+                _caption_below(fig, "How to read: Compare bars per mission. When competitor bar > " + target_label + " bar = "
+                    + target_label + " under-invested (white space). Sorted by gap (biggest opportunity first).")
                 plt.savefig(output_dir / "white_space_target_vs_competitor.png", dpi=120, bbox_inches="tight")
                 plt.close()
                 logger.info("  → white_space_target_vs_competitor.png")
@@ -554,27 +687,30 @@ def plot_white_space_visuals(
             "competitor_median_density": "mean",
             "competitor_count_in_cell": "sum",
         }).reset_index()
-        mission_summary = mission_summary.nlargest(12, "competitor_count_in_cell")
+        mission_summary["gap"] = (mission_summary["competitor_median_density"] - mission_summary["target_density"]) * 100
+        mission_summary = mission_summary.nlargest(12, "competitor_count_in_cell").sort_values("gap", ascending=False)
         if not mission_summary.empty:
             x = np.arange(len(mission_summary))
-            w = 0.35
+            w = 0.42
             t_vals = (mission_summary["target_density"] * 100).values
             c_vals = (mission_summary["competitor_median_density"] * 100).values
             t_plot = np.maximum(t_vals, 0.5)
             c_plot = np.maximum(c_vals, 0.5)
             fig, ax = plt.subplots(figsize=(12, 7))
-            ax.bar(x - w/2, t_plot, width=w, label=target_label + " Avg", color="steelblue", alpha=0.9)
-            ax.bar(x + w/2, c_plot, width=w, label=competitor_label + " Median", color="coral", alpha=0.85)
+            ax.bar(x - w/2, t_plot, width=w, label=target_label + " Avg", color=CHART_COLORS[0], alpha=0.9)
+            ax.bar(x + w/2, c_plot, width=w, label=competitor_label + " Median", color=CHART_COLORS[2], alpha=0.85)
             for i, (tv, cv) in enumerate(zip(t_vals, c_vals)):
                 ax.text(x[i] - w/2, t_plot[i] + 0.5, f"{tv:.1f}%", ha="center", va="bottom", fontsize=8)
                 ax.text(x[i] + w/2, c_plot[i] + 0.5, f"{cv:.1f}%", ha="center", va="bottom", fontsize=8)
+            ax.set_title(target_label + " vs " + competitor_label + " Density by Mission (Key Missions)")
             ax.set_xticks(x)
             ax.set_xticklabels(mission_summary["mission"], rotation=45, ha="right")
             ax.set_ylabel("Density (%)")
-            ax.set_title(target_label + " vs " + competitor_label + " Density by Mission (Key Missions)")
             ax.legend()
             ax.set_ylim(0, max(c_plot.max(), t_plot.max()) * 1.2)
-            plt.tight_layout()
+            plt.tight_layout(rect=[0, 0.12, 1, 1])
+            _caption_below(fig, "How to read: Compare bars per mission. Higher competitor bar = " + target_label + " under-invested. "
+                "Missions sorted by gap (biggest opportunity first).")
             plt.savefig(output_dir / "white_space_target_vs_competitor.png", dpi=120, bbox_inches="tight")
             plt.close()
             logger.info("  → white_space_target_vs_competitor.png")
@@ -599,6 +735,7 @@ def plot_white_space_visuals(
         "- `white_space_price_band_by_brand.png` – Price band mix by brand (% of SKUs per band)",
         "- `white_space_category_by_brand.png` – Category coverage by brand (top categories)",
         "- `white_space_sku_by_mission_brand.png` – Mission share (%) by brand (% of each brand's SKUs per mission)",
+        "- `white_space_mission_sku_count_heatmap.png` – Mission density (%) by brand; box labels = SKU count (reference)",
         f"- `white_space_target_vs_competitor.png` – {target_label} vs {competitor_label} by mission",
         "",
         "## Understanding the Charts",
@@ -691,6 +828,18 @@ if __name__ == "__main__":
         default=None,
         help="Comma-separated brands to include (restricts analysis scope). If omitted, all brands in data are used.",
     )
+    parser.add_argument(
+        "--exclude-brands",
+        default="tna,the super puff",
+        dest="exclude_brands",
+        help="Comma-separated brands to exclude (e.g. tna,the super puff). Default: tna,the super puff.",
+    )
+    parser.add_argument(
+        "--target-source-aggregate",
+        action="store_true",
+        dest="target_source_aggregate",
+        help="Aggregate all Target-sourced brands as 'Target' vs all competitors. Use with --focus-brand target.",
+    )
     parser.add_argument("--chroma-api-key", default=os.environ.get("CHROMA_API_KEY"))
     parser.add_argument("--chroma-tenant", default=os.environ.get("CHROMA_TENANT"))
     parser.add_argument("--chroma-database", default=os.environ.get("CHROMA_DATABASE"))
@@ -723,6 +872,7 @@ if __name__ == "__main__":
     target_brand = (args.target_brand or "").strip() or None
     competitor_brands = [b.strip() for b in args.competitors.split(",")] if args.competitors else None
     brands_filter = [b.strip() for b in args.brands.split(",")] if args.brands else None
+    exclude_brands = [b.strip() for b in args.exclude_brands.split(",")] if args.exclude_brands else []
 
     if focus_brand:
         logger.info("Focus brand: %s", focus_brand)
@@ -732,6 +882,8 @@ if __name__ == "__main__":
         logger.info("Competitor brands: %s", competitor_brands)
     if brands_filter:
         logger.info("Brands filter: %s", brands_filter)
+    if exclude_brands:
+        logger.info("Exclude brands: %s", exclude_brands)
 
     compute_mission_density_and_gaps(
         rows,
@@ -740,5 +892,7 @@ if __name__ == "__main__":
         target_brand=target_brand,
         competitor_brands=competitor_brands,
         brands_filter=brands_filter,
+        exclude_brands=exclude_brands,
+        target_source_aggregate=args.target_source_aggregate,
     )
     logger.info("Done.")
