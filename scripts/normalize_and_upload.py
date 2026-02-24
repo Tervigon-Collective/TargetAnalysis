@@ -9,8 +9,8 @@ Normalize and clean Target + Gap product CSVs into a unified schema, then upload
 
 Usage:
     python scripts/normalize_and_upload.py data/target_handbags_20260223_014436.csv
-    python scripts/normalize_and_upload.py data/*.csv
-    python scripts/normalize_and_upload.py data/target_handbags_20260223_165023.csv --chroma
+    python scripts/normalize_and_upload.py data/*.csv --chroma
+    python scripts/normalize_and_upload.py data/*.csv --chroma --fill-descriptions
 
 Default output: output/products_normalized_combined.csv|json, output/products.db
 """
@@ -18,10 +18,12 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import logging
 import os
 import re
+import sys
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -166,6 +168,12 @@ MATERIAL_JUNK_PATTERNS = (
     r"^\.\s*$",
 )
 
+# Description junk: scraped JavaScript/analytics (J.Crew and similar)
+DESCRIPTION_JS_PATTERNS = (
+    r"!function\s*\(.*",  # Minified IIFE
+    r"BOOMR\.|go-mpulse|akamaihd\.net",
+)
+
 
 def _s(v: object) -> str:
     """Safe string coercion; None/empty/nan → ''."""
@@ -243,6 +251,30 @@ def _clean_material(val: str) -> str:
     return val
 
 
+def _clean_description_junk(val: str) -> str:
+    """Remove scraped JavaScript/analytics from description (e.g. J.Crew Boomerang)."""
+    if not val or len(val) < 50:
+        return val
+    for pat in DESCRIPTION_JS_PATTERNS:
+        if re.search(pat, val, re.IGNORECASE):
+            return ""  # Drop entire description if it's JS junk
+    return val
+
+
+def _clean_care_careers(val: str) -> str:
+    """Remove 'Careers' and similar wrong scraped values from care_instructions."""
+    if not val:
+        return ""
+    s = val.strip()
+    if s.lower() == "careers" or s.lower().startswith("careers"):
+        return ""
+    # Drop scraped JavaScript/analytics (J.Crew sometimes has JS in care_instructions)
+    for pat in DESCRIPTION_JS_PATTERNS:
+        if re.search(pat, s, re.IGNORECASE):
+            return ""
+    return s
+
+
 def _clean_product_details(val: str, description: str) -> str:
     """Remove product_details when it's just a fragment of description or junk."""
     if not val:
@@ -297,15 +329,49 @@ def _extract_material_from_description(desc: str) -> str:
     return ", ".join(dict.fromkeys(materials)) if materials else ""
 
 
+def _extract_colors_from_name(name: str) -> str:
+    """Extract color mentions from product name (e.g. 'Bag - Black' -> 'Black')."""
+    if not name or len(name) < 5:
+        return ""
+    name_lower = name.lower()
+    colors = []
+    for word in [
+        "black", "white", "brown", "pink", "red", "blue", "green", "tan", "navy",
+        "gray", "grey", "beige", "gold", "silver", "cream", "yellow", "orange",
+        "purple", "burgundy", "camel", "khaki", "mint", "lavender", "coral",
+        "rose", "denim", "olive", "rust", "mocha", "ivory", "charcoal",
+        "blonde espresso", "darkest indigo", "matera sand", "soft macadamia",
+        "natural", "leopard", "clear",
+    ]:
+        if word in name_lower:
+            colors.append(word.title())
+    return " | ".join(dict.fromkeys(colors)) if colors else ""
+
+
 def _detect_source(row: dict) -> str:
     """Detect source from row structure."""
-    if "tcin" in row or "scraped_at" in row or ("url" in row and "target.com" in str(row.get("url", ""))):
+    url_raw = str(row.get("product_url") or row.get("url") or "")
+    if "tcin" in row or "scraped_at" in row or "target.com" in url_raw:
         return "target"
-    if "product_id" in row and "product_url" in row and "gap.com" in str(row.get("product_url", "")):
+    if "gap.com" in url_raw:
         return "gap"
-    if "availability_text" in row and "category_breadcrumb" in row:
+    if "jcrew.com" in url_raw:
+        return "jcrew"
+    if "aritzia.com" in url_raw:
+        return "aritzia"
+    if "abercrombie.com" in url_raw:
+        return "abercrombie"
+    if "availability_text" in row and "category_breadcrumb" in row and "gap.com" not in url_raw:
         return "gap"  # Canonical Gap export
     return "target"  # Default
+
+
+def _extract_product_id_from_url(url: str, pattern: str = r"/p/[^/]+-(\d+)(?:\?|$|/)") -> str:
+    """Extract product ID from URL path (e.g. /p/bag-charm-61210335? -> 61210335)."""
+    if not url:
+        return ""
+    m = re.search(pattern, url)
+    return m.group(1) if m else ""
 
 
 def _variant_tcin(row: dict) -> str:
@@ -333,11 +399,13 @@ def normalize_target_row(row: dict) -> dict:
         row = {k.lstrip("\ufeff"): v for k, v in row.items()}
 
     product_id = _variant_tcin(row)
-    name = _s(row.get("title") or row.get("name"))
+    name = _s(row.get("title") or row.get("name") or row.get("product_name"))
     product_url = _s(row.get("url") or row.get("product_url"))
     brand = _s(row.get("brand"))
     category_breadcrumb = _s(row.get("breadcrumb") or row.get("category_breadcrumb"))
     leaf_category = _s(row.get("leaf_category"))
+    if not category_breadcrumb and leaf_category:
+        category_breadcrumb = f"Target > Clothing, Shoes & Accessories > Accessories > Handbags & Purses > {leaf_category}"
 
     price_current = _s(row.get("price") or row.get("price_current"))
     price_orig_raw = row.get("original_price") or row.get("price_original")
@@ -366,7 +434,9 @@ def normalize_target_row(row: dict) -> dict:
     material_text = _s(row.get("material") or row.get("material_text") or row.get("shell_material"))
     materials_section = _s(row.get("materials_section")) or material_text
 
-    color_options = _s(row.get("colors") or row.get("color_options"))
+    color_options = _s(row.get("colors") or row.get("color_options") or row.get("selected_color"))
+    if not color_options and name:
+        color_options = _extract_colors_from_name(name)
     size_options = _s(row.get("size_options") or row.get("sizes"))
 
     dimensions_raw = _s(row.get("dimensions_raw"))
@@ -383,6 +453,13 @@ def normalize_target_row(row: dict) -> dict:
     exterior_features = _s(row.get("exterior_features"))
     closure_type = _s(row.get("closure_type"))
     handle_type = _s(row.get("handle_type"))
+    if description:
+        parsed = _parse_bag_features_from_description(description)
+        bag_structure = bag_structure or parsed.get("bag_structure", "")
+        interior_features = interior_features or parsed.get("interior_features", "")
+        exterior_features = exterior_features or parsed.get("exterior_features", "")
+        closure_type = closure_type or parsed.get("closure_type", "")
+        handle_type = handle_type or parsed.get("handle_type", "")
     fabric_name = _s(row.get("fabric_name"))
     care_instructions = _s(row.get("care_instructions") or row.get("care_and_cleaning"))
     origin = _s(row.get("origin"))
@@ -390,6 +467,10 @@ def normalize_target_row(row: dict) -> dict:
     images_list = _s(row.get("images") or row.get("images_list"))
     image_url = _s(row.get("image_url")) or _first_image(images_list)
     image_count = _s(row.get("image_count")) or _image_count(images_list)
+    if not images_list and image_url:
+        images_list = image_url
+    if not image_count and (image_url or images_list):
+        image_count = _image_count(images_list) if images_list else "1"
 
     sku = _s(row.get("upc") or row.get("sku"))
     dpci = _s(row.get("dpci"))
@@ -397,7 +478,7 @@ def normalize_target_row(row: dict) -> dict:
     best_seller_flag = _bool_str(row.get("best_seller_flag") or "False")
     new_arrival_flag = _bool_str(row.get("is_new") or row.get("new_arrival_flag"))
     promo_excluded = _s(row.get("promo_excluded"))
-    scrape_date = _s(row.get("scraped_at") or row.get("scrape_date"))
+    scrape_date = _s(row.get("scraped_at") or row.get("scrape_date") or row.get("timestamp"))
 
     return {
         "source": "target",
@@ -471,7 +552,7 @@ def normalize_gap_row(row: dict) -> dict:
     return {
         "source": "gap",
         "product_id": product_id,
-        "name": g("name", "title"),
+        "name": g("name", "title", "product_name"),
         "brand": g("brand"),
         "product_url": g("product_url", "url"),
         "category_breadcrumb": g("category_breadcrumb", "category"),
@@ -490,6 +571,232 @@ def normalize_gap_row(row: dict) -> dict:
         "material_text": g("material_text", "material"),
         "materials_section": g("materials_section"),
         "color_options": g("color_options", "colors"),
+        "size_options": g("size_options", "sizes"),
+        "dimensions": g("dimensions"),
+        "dimensions_section": g("dimensions_section"),
+        "bag_structure": "",
+        "interior_features": "",
+        "exterior_features": "",
+        "closure_type": "",
+        "handle_type": "",
+        "fabric_name": "",
+        "care_instructions": g("care_instructions"),
+        "origin": "",
+        "image_url": image_url,
+        "images_list": images_list,
+        "image_count": image_count,
+        "sku": g("sku"),
+        "dpci": "",
+        "sold_shipped_by": g("sold_shipped_by"),
+        "best_seller_flag": _bool_str(row.get("best_seller_flag")),
+        "new_arrival_flag": _bool_str(row.get("new_arrival_flag")),
+        "promo_excluded": g("promo_excluded"),
+        "scrape_date": g("scrape_date"),
+    }
+
+
+def _normalize_canonical_export_row(row: dict, source: str, derive_leaf: bool = False) -> dict:
+    """Shared normalizer for Gap/Aritzia/Abercrombie canonical-style exports."""
+    if any(k.startswith("\ufeff") for k in row):
+        row = {k.lstrip("\ufeff"): v for k, v in row.items()}
+
+    def g(k: str, *alt: str) -> str:
+        for key in (k,) + alt:
+            v = row.get(key)
+            if v is not None and str(v).strip() not in ("", "nan", "None"):
+                return _s(v)
+        return ""
+
+    product_id = g("product_id", "id", "sku")
+    if not product_id and source == "abercrombie":
+        product_id = _extract_product_id_from_url(g("product_url", "url")) or g("sku")
+
+    price_curr = g("price_current", "price")
+    # Abercrombie: price sometimes in cents (e.g. 3265.81 -> $32.66)
+    if source == "abercrombie" and price_curr:
+        try:
+            p = float(price_curr)
+            if p > 500:  # Likely cents
+                price_curr = f"{p / 100:.2f}"
+        except (ValueError, TypeError):
+            pass
+    price_orig = row.get("price_original") or row.get("price_original")
+    price_original = _price_str(price_orig)
+    if not price_original and str(price_orig or "").strip() in ("0", "0.0"):
+        price_original = ""
+
+    images_list = g("images_list", "images")
+    image_url = g("image_url") or _first_image(images_list)
+    image_count = g("image_count") or _image_count(images_list)
+
+    category_breadcrumb = g("category_breadcrumb", "category")
+    leaf_category = _leaf_from_breadcrumb(category_breadcrumb) if derive_leaf else ""
+
+    return {
+        "source": source,
+        "product_id": product_id,
+        "name": g("name", "title", "product_name"),
+        "brand": g("brand"),
+        "product_url": g("product_url", "url"),
+        "category_breadcrumb": category_breadcrumb,
+        "leaf_category": leaf_category,
+        "price_currency": g("price_currency") or "USD",
+        "price_current": price_curr,
+        "price_original": price_original,
+        "discount_percent": "",
+        "is_sale": _bool_str(row.get("is_sale")),
+        "availability_text": g("availability_text"),
+        "average_rating": g("average_rating", "rating"),
+        "rating_count": g("rating_count"),
+        "review_count": g("review_count"),
+        "description": g("description"),
+        "product_details": g("product_details"),
+        "material_text": g("material_text", "material"),
+        "materials_section": g("materials_section"),
+        "color_options": g("color_options", "colors"),
+        "size_options": g("size_options", "sizes"),
+        "dimensions": g("dimensions"),
+        "dimensions_section": g("dimensions_section"),
+        "bag_structure": "",
+        "interior_features": "",
+        "exterior_features": "",
+        "closure_type": "",
+        "handle_type": "",
+        "fabric_name": "",
+        "care_instructions": g("care_instructions"),
+        "origin": "",
+        "image_url": image_url,
+        "images_list": images_list,
+        "image_count": image_count,
+        "sku": g("sku"),
+        "dpci": "",
+        "sold_shipped_by": g("sold_shipped_by"),
+        "best_seller_flag": _bool_str(row.get("best_seller_flag")),
+        "new_arrival_flag": _bool_str(row.get("new_arrival_flag")),
+        "promo_excluded": g("promo_excluded"),
+        "scrape_date": g("scrape_date"),
+    }
+
+
+def normalize_aritzia_row(row: dict) -> dict:
+    """Normalize Aritzia export row (canonical-style) to full canonical schema."""
+    return _normalize_canonical_export_row(row, "aritzia", derive_leaf=True)
+
+
+def normalize_abercrombie_row(row: dict) -> dict:
+    """Normalize Abercrombie export row (canonical-style) to full canonical schema."""
+    return _normalize_canonical_export_row(row, "abercrombie", derive_leaf=True)
+
+
+def _parse_json_array_to_pipe(val: str) -> str:
+    """Parse JSON array string to pipe-separated; return original if not JSON."""
+    if not val or not str(val).strip():
+        return ""
+    s = str(val).strip()
+    if not (s.startswith("[") and s.endswith("]")):
+        return s
+    try:
+        arr = json.loads(s)
+        if isinstance(arr, list):
+            parts = [str(x).strip() for x in arr if str(x).strip()]
+            return " | ".join(parts)
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return s
+
+
+def _parse_bag_features_from_description(desc: str) -> dict[str, str]:
+    """Extract bag_structure, interior_features, exterior_features, closure_type, handle_type from description."""
+    out: dict[str, str] = {}
+    if not desc or len(desc) < 20:
+        return out
+    for label, key in [
+        ("Bag structure", "bag_structure"),
+        ("Interior features", "interior_features"),
+        ("Exterior features", "exterior_features"),
+        ("Main Compartment Closure", "closure_type"),
+        ("Main compartment closure", "closure_type"),
+        ("Closure Type", "closure_type"),
+        ("Handle Type", "handle_type"),
+        ("Handle type", "handle_type"),
+    ]:
+        m = re.search(rf"{re.escape(label)}:\s*([^;]+)", desc, re.IGNORECASE)
+        if m and key not in out:
+            out[key] = m.group(1).strip()
+    return out
+
+
+def _leaf_from_breadcrumb(breadcrumb: str) -> str:
+    """Extract leaf category from breadcrumb (e.g. 'Home > women > bags' -> 'bags')."""
+    if not breadcrumb or not str(breadcrumb).strip():
+        return ""
+    parts = [p.strip() for p in str(breadcrumb).split(">") if p.strip()]
+    return parts[-1] if parts else ""
+
+
+def normalize_jcrew_row(row: dict) -> dict:
+    """Normalize J.Crew export row (canonical-like) to full canonical schema."""
+    if any(k.startswith("\ufeff") for k in row):
+        row = {k.lstrip("\ufeff"): v for k, v in row.items()}
+
+    def g(k: str, *alt: str) -> str:
+        for key in (k,) + alt:
+            v = row.get(key)
+            if v is not None and str(v).strip() not in ("", "nan", "None"):
+                return _s(v)
+        return ""
+
+    product_id = g("product_id", "id")
+    price_curr = g("price_current", "price")
+    price_orig_raw = row.get("price_original") or row.get("price_original")
+    price_original = _price_str(price_orig_raw)
+    # J.Crew: when price_original equals price_current, no sale
+    try:
+        pc = float(price_curr) if price_curr else None
+        po = float(price_original) if price_original else None
+        if pc is not None and po is not None and pc == po:
+            price_original = ""
+    except (ValueError, TypeError):
+        pass
+
+    color_raw = g("color_options", "colors")
+    color_options = _parse_json_array_to_pipe(color_raw) if color_raw else ""
+    images_raw = g("images_list", "images")
+    images_list = _parse_json_array_to_pipe(images_raw) if images_raw else ""
+    image_url = g("image_url") or _first_image(images_list)
+    image_count = g("image_count") or _image_count(images_list)
+
+    category_breadcrumb = g("category_breadcrumb", "category")
+    leaf_category = g("leaf_category") or _leaf_from_breadcrumb(category_breadcrumb)
+
+    is_sale = _bool_str(row.get("is_sale"))
+    if price_original and not is_sale:
+        is_sale = "True"  # Has original and current different → sale
+    if not price_original and is_sale == "True":
+        is_sale = "False"
+
+    return {
+        "source": "jcrew",
+        "product_id": product_id,
+        "name": g("name", "title", "product_name"),
+        "brand": g("brand"),
+        "product_url": g("product_url", "url"),
+        "category_breadcrumb": category_breadcrumb,
+        "leaf_category": leaf_category,
+        "price_currency": g("price_currency") or "USD",
+        "price_current": price_curr,
+        "price_original": price_original,
+        "discount_percent": "",
+        "is_sale": is_sale,
+        "availability_text": g("availability_text"),
+        "average_rating": g("average_rating", "rating"),
+        "rating_count": g("rating_count"),
+        "review_count": g("review_count"),
+        "description": g("description"),
+        "product_details": g("product_details"),
+        "material_text": g("material_text", "material"),
+        "materials_section": g("materials_section"),
+        "color_options": color_options,
         "size_options": g("size_options", "sizes"),
         "dimensions": g("dimensions"),
         "dimensions_section": g("dimensions_section"),
@@ -545,6 +852,14 @@ def clean_row(row: dict) -> dict:
         if out.get(key):
             out[key] = _clean_material(out[key])
 
+    # Fill empty color_options from product name (e.g. Target CSV has color in name)
+    if not out.get("color_options") or not _s(out.get("color_options")):
+        name = _s(out.get("name", ""))
+        if name:
+            extracted = _extract_colors_from_name(name)
+            if extracted:
+                out["color_options"] = extracted
+
     # Extract material from description if missing
     if not out.get("material_text") and out.get("description"):
         extracted = _extract_material_from_description(out["description"])
@@ -561,6 +876,45 @@ def clean_row(row: dict) -> dict:
     # Care instructions: remove junk
     if out.get("care_instructions"):
         out["care_instructions"] = _clean_care_instructions(out["care_instructions"])
+        out["care_instructions"] = _clean_care_careers(out["care_instructions"])
+
+    # Description: remove scraped JavaScript/analytics (J.Crew etc.)
+    if out.get("description"):
+        out["description"] = _clean_description_junk(out["description"])
+
+    # Fill empty description from product_details
+    if not out.get("description") and out.get("product_details"):
+        out["description"] = _s(out["product_details"])[:800]
+
+    # Fill empty name: use first sentence of description or "Product {id}"
+    if not out.get("name") or not _s(out["name"]):
+        desc = _s(out.get("description", ""))
+        if desc:
+            first = desc.split(".")[0].strip() or desc[:60].rsplit(" ", 1)[0] or desc[:60]
+            out["name"] = first[:120] if first else ""
+        if not out.get("name"):
+            pid = _s(out.get("product_id", ""))
+            out["name"] = f"Product {pid}" if pid else "Product"
+
+    # Fill empty image_url from images_list
+    if not out.get("image_url") and out.get("images_list"):
+        first = _first_image(out["images_list"])
+        if first:
+            out["image_url"] = first
+
+    # J.Crew etc: fill empty price_current from price_original
+    if not out.get("price_current") and out.get("price_original"):
+        out["price_current"] = _s(out["price_original"])
+
+    # Ensure product_id for dedup: use sku or hash of product_url as last resort
+    if not out.get("product_id") or not _s(out["product_id"]):
+        sid = _s(out.get("sku"))
+        if sid:
+            out["product_id"] = sid
+        else:
+            url = _s(out.get("product_url", ""))
+            if url:
+                out["product_id"] = hashlib.md5(url.encode()).hexdigest()[:16]
 
     return out
 
@@ -706,7 +1060,7 @@ def build_document_text(row: dict) -> str:
 
 
 def build_chroma_metadata(row: dict) -> dict:
-    """Build flat metadata for Chroma from EMBEDDING_COLUMNS (scalar values, truncate long strings).
+    """Build flat metadata for Chroma from EMBEDDING_COLUMNS (scalar values, no truncation).
     Also adds UI-friendly aliases (title, url, in_stock) for Chroma Cloud dashboard display.
     """
     meta = {}
@@ -719,16 +1073,13 @@ def build_chroma_metadata(row: dict) -> dict:
         elif isinstance(v, (int, float)):
             meta[key] = v
         else:
-            s = _s(v)
-            if len(s) > 500:
-                s = s[:500]
-            meta[key] = s
+            meta[key] = _s(v)
 
     # UI-friendly aliases for Chroma Cloud dashboard (title, url, in_stock columns)
     if row.get("name"):
-        meta["title"] = _s(row["name"])[:500]
+        meta["title"] = _s(row["name"])
     if row.get("product_url"):
-        meta["url"] = _s(row["product_url"])[:500]
+        meta["url"] = _s(row["product_url"])
     av = _s(row.get("availability_text", "")).lower()
     if av in ("in stock", "true", "1", "yes"):
         meta["in_stock"] = True
@@ -935,6 +1286,11 @@ def main() -> None:
         help="SQLite table name (default: products).",
     )
     parser.add_argument(
+        "--no-fill-descriptions",
+        action="store_true",
+        help="Skip LLM fill of missing descriptions (default: fill).",
+    )
+    parser.add_argument(
         "--require-description",
         action="store_true",
         help="Filter to only rows with description (default: keep all rows).",
@@ -1009,7 +1365,16 @@ def main() -> None:
             continue
 
         source = _detect_source(raw[0]) if raw else "target"
-        normalize_fn = normalize_gap_row if source == "gap" else normalize_target_row
+        if source == "gap":
+            normalize_fn = normalize_gap_row
+        elif source == "jcrew":
+            normalize_fn = normalize_jcrew_row
+        elif source == "aritzia":
+            normalize_fn = normalize_aritzia_row
+        elif source == "abercrombie":
+            normalize_fn = normalize_abercrombie_row
+        else:
+            normalize_fn = normalize_target_row
 
         for r in raw:
             row = normalize_fn(r)
@@ -1026,6 +1391,24 @@ def main() -> None:
     if not all_rows:
         logger.error("No rows to write.")
         return
+
+    # Fill missing descriptions via LLM (default; use --no-fill-descriptions to skip)
+    if not args.no_fill_descriptions:
+        try:
+            sys.path.insert(0, str(Path(__file__).resolve().parent))
+            from fill_descriptions_llm import fill_descriptions_in_rows
+            n_filled = fill_descriptions_in_rows(
+                all_rows,
+                batch_size=6,
+                delay_sec=2.0,
+                min_desc_len=30,
+            )
+            if n_filled:
+                logger.info("LLM filled %d missing descriptions.", n_filled)
+        except ImportError as e:
+            logger.warning("Could not import fill_descriptions_llm: %s. Skipping LLM description fill.", e)
+        except Exception as e:
+            logger.warning("LLM description fill failed: %s", e)
 
     # Optionally filter to rows with description
     if args.require_description:

@@ -18,6 +18,7 @@ Pillow
 
 # Mission tagging (Azure OpenAI)
 openai>=1.0.0
+PyYAML>=6.0
 
 # Gap analysis (clustering + reports)
 sentence-transformers>=2.2.0

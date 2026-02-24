@@ -1,0 +1,21 @@
+# White space analysis configuration
+# Spec: Target White Space Detection Engine - Mission density computation
+# We always compare brands only. Target is a retailer; use brand names (Universal Thread, Gap, etc.)
+
+# Price bands for cell definition (Brand x Category x Mission x Price Band)
+white_space_price_bands:
+  bounds: [0, 15, 25, 35, 50, 75, 9999]
+  labels: ["0_15", "15_25", "25_35", "35_50", "50_75", "75_plus"]
+
+# Focus brand to analyze for white space gaps (e.g. universal thread, gap)
+# If "target", infers from Target-sourced rows (first brand in those rows)
+focus_brand: ""
+
+# Deprecated: use focus_brand. Kept for backward compat.
+target_source: ""
+
+# Minimum competitor count in cell to avoid noise (spec: competitor_count_in_cell >= 8)
+min_competitor_count_threshold: 8
+
+# Example: Universal Thread vs Gap vs J.Crew (brand vs brand)
+# Run: python scripts/mission_density_engine.py --focus-brand "universal thread" --competitors gap,jcrew --brands "universal thread",gap,jcrew

@@ -1,0 +1,183 @@
+# Mission signal dictionaries for rule-based tagging
+# Used by scripts/mission_tagging_engine.py
+# Spec: Target White Space Detection Engine - Mission tagging logic
+
+version: "1.0"
+
+# Spec missions (first 7) - token dictionaries per mission
+# Each token adds signal strength when found in product text
+mission_tokens:
+  occasion_glam:
+    tokens:
+      - party
+      - evening
+      - occasion
+      - glam
+      - sparkle
+      - beaded
+      - sequin
+      - rhinestone
+      - metallic
+      - satin
+      - clutch
+      - minaudiere
+      - champagne
+      - gold
+      - silver
+      - embellished
+      - foil
+    shapes:
+      - clutch
+      - minaudiere
+      - mini shoulder
+    materials:
+      - satin
+      - sequins
+      - metallic
+  everyday_crossbody:
+    tokens:
+      - crossbody
+      - messenger
+      - hands-free
+      - everyday
+      - daily
+      - casual
+      - adjustable
+      - secure
+      - zip
+      - camera bag
+      - saddle
+      - pouch
+    strap:
+      - adjustable strap
+      - long strap
+    closure:
+      - zip top
+    shapes:
+      - camera bag
+      - saddle
+      - pouch crossbody
+  work_tote:
+    tokens:
+      - tote
+      - work
+      - office
+      - laptop
+      - commuter
+      - carryall
+      - compartments
+      - laptop sleeve
+      - structured
+      - professional
+      - briefcase
+    features:
+      - compartments
+      - laptop sleeve
+      - top zip
+    handles:
+      - double handles
+      - shoulder drop
+  weekend_bucket:
+    tokens:
+      - bucket
+      - slouchy
+      - hobo
+      - relaxed
+      - drawstring
+    materials:
+      - woven
+      - raffia
+      - crochet
+      - canvas
+    closure:
+      - drawstring
+  travel_utility:
+    tokens:
+      - travel
+      - airport
+      - nylon
+      - water-resistant
+      - anti-theft
+      - secure
+      - passport
+      - packable
+      - hidden pocket
+      - belt bag
+    closure:
+      - zip
+    strap:
+      - crossbody
+      - belt bag
+    materials:
+      - nylon
+      - recycled poly
+  micro_mini_impulse:
+    tokens:
+      - mini
+      - micro
+      - tiny
+      - petite
+      - charms
+      - novelty
+      - charm
+    shapes:
+      - mini shoulder
+      - mini bag
+  slg_small_leathers:
+    tokens:
+      - wallet
+      - cardholder
+      - coin purse
+      - wristlet
+      - phone pouch
+      - organizer
+      - key case
+    category_keywords:
+      - wallet
+      - wallets
+      - cardholder
+      - small leather
+
+# Priority rules: when conditions match, apply override or boost
+# Rule types: category_override (mission wins), boost (add strong signal), dual_mission (add secondary)
+priority_rules:
+  - id: wallets_category
+    condition:
+      category_contains: [wallet, wallets, cardholder]
+    action: category_override
+    mission: slg_small_leathers
+  - id: clutch_boost
+    condition:
+      token_present: clutch
+    action: boost
+    mission: occasion_glam
+    strength: 0.9
+  - id: laptop_wins
+    condition:
+      token_present: laptop
+    action: category_override
+    mission: work_tote
+  - id: mini_beaded_dual
+    condition:
+      tokens_all: [mini, beaded]
+    action: dual_mission
+    primary: occasion_glam
+    secondary: micro_mini_impulse
+  - id: mini_beaded_alt
+    condition:
+      tokens_all: [mini, sequin]
+    action: dual_mission
+    primary: occasion_glam
+    secondary: micro_mini_impulse
+  - id: mini_beaded_alt2
+    condition:
+      tokens_all: [mini, rhinestone]
+    action: dual_mission
+    primary: occasion_glam
+    secondary: micro_mini_impulse
+
+# Confidence tuning: 1 - exp(-k * signal_strength_sum)
+# k tuned so 3 strong signals (~0.33 each) -> sum 1.0 -> k*1 ~ 1.6 for 0.8
+confidence_k: 1.6
+rule_confidence_threshold: 0.5  # below this, use LLM fallback
+dual_mission_score_threshold: 0.1  # secondary if within this of primary

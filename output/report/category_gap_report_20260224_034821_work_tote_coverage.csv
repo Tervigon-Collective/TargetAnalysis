@@ -1,0 +1,13 @@
+price_band,segment,Gap,Universal Thread
+0-20,other,28,18
+0-20,tote,21,0
+120+,other,5,0
+20-40,other,58,35
+20-40,tote,5,0
+20-40,work_tote,0,1
+40-60,other,16,3
+40-60,tote,18,0
+60-90,other,2,0
+60-90,tote,3,0
+90-120,other,1,0
+90-120,work_tote,1,0

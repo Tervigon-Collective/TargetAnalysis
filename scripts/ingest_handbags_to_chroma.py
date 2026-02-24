@@ -136,10 +136,7 @@ def build_metadata(product: dict) -> dict:
         elif isinstance(v, (int, float)):
             meta[key] = v
         else:
-            s = safe_str(v)
-            if len(s) > 500:
-                s = s[:500]
-            meta[key] = s
+            meta[key] = safe_str(v)
     return meta
 
 

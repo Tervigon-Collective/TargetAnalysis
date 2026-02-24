@@ -341,132 +341,144 @@ def extract_title_keywords(title: str) -> dict[str, bool]:
     return {kw: bool(re.search(r"\b" + re.escape(kw) + r"\b", t)) for kw in TITLE_KEYWORDS}
 
 
+def _classify_segment_from_taxonomy(row: dict) -> str | None:
+    """Use segment_label/silhouette when present. Returns work_tote, tote, or other; None if fallback needed."""
+    seg = str(row.get("segment_label") or "").lower()
+    sil = str(row.get("silhouette") or "").lower()
+    combined = f"{seg} {sil}"
+    has_tote = "tote" in combined
+    has_work = any(
+        x in combined for x in ("work", "structured", "professional", "laptop")
+    )
+    if has_tote and has_work:
+        return "work_tote"
+    if has_tote:
+        return "tote"
+    return None  # fallback to text
+
+
 def _compute_coverage_gaps(
-    df: pd.DataFrame, brand_compare: str
+    df: pd.DataFrame, brands: list[str]
 ) -> tuple[str, list[str]]:
-    """Compute coverage gaps (price band × style segment). Returns (hero_line, report_lines)."""
+    """Compute coverage gaps (price band × style segment) for N brands. Returns (hero_line, report_lines)."""
     if "brand" not in df.columns or "price_numeric" not in df.columns:
         return "", []
     brand_vals = df["brand"].fillna("").astype(str).str.strip()
-    is_target = brand_vals.str.lower() == brand_compare.lower()
-    if is_target.sum() == 0 or (~is_target).sum() == 0:
+    brand_set = {b.strip().lower() for b in brands if b and str(b).strip()}
+    df_cov = df.copy()
+    df_cov["_brand_norm"] = brand_vals.str.lower()
+    df_cov = df_cov[df_cov["_brand_norm"].isin(brand_set)]
+    if df_cov.empty or len(brand_set) < 2:
         return "", []
 
-    # Build text for segment detection (name/title + description + category)
+    # Segment: use taxonomy when present, else text regex
+    use_taxonomy = "segment_label" in df.columns or "silhouette" in df.columns
+    if use_taxonomy:
+        segs = []
+        for _, r in df_cov.iterrows():
+            s = _classify_segment_from_taxonomy(r.to_dict())
+            segs.append(s)
+        df_cov["_segment_raw"] = segs
+    else:
+        df_cov["_segment_raw"] = None
+
     text_parts = []
     for col in ("name", "title", "description", "category_breadcrumb"):
-        if col in df.columns:
-            text_parts.append(df[col].fillna("").astype(str))
-    text = pd.Series("", index=df.index)
+        if col in df_cov.columns:
+            text_parts.append(df_cov[col].fillna("").astype(str))
+    text = pd.Series("", index=df_cov.index)
     if text_parts:
         text = text_parts[0]
         for p in text_parts[1:]:
             text = text + " " + p
     text = text.str.lower()
-
-    # Price band (includes $60–90 sweet spot)
-    price = df["price_numeric"].fillna(0)
-    df_cov = df.copy()
-    df_cov["_band"] = "unknown"
-    for i, (lo, hi) in enumerate(COVERAGE_PRICE_BANDS):
-        mask = (price >= lo) & (price < hi)
-        df_cov.loc[mask, "_band"] = COVERAGE_BAND_LABELS[i]
-    df_cov["_text"] = text
     df_cov["_is_tote"] = text.str.contains("tote", na=False, regex=False)
     df_cov["_is_work"] = text.str.contains(
         r"work|laptop|professional|office", na=False, regex=True
     )
-    df_cov["_segment"] = "other"
-    df_cov.loc[
-        df_cov["_is_tote"] & df_cov["_is_work"], "_segment"
-    ] = "work_tote"
-    df_cov.loc[
-        df_cov["_is_tote"] & ~df_cov["_is_work"], "_segment"
-    ] = "tote"
+    df_cov["_segment"] = df_cov["_segment_raw"]
+    mask_fallback = df_cov["_segment"].isna()
+    df_cov.loc[mask_fallback & df_cov["_is_tote"] & df_cov["_is_work"], "_segment"] = "work_tote"
+    df_cov.loc[mask_fallback & df_cov["_is_tote"] & ~df_cov["_is_work"], "_segment"] = "tote"
+    df_cov.loc[mask_fallback, "_segment"] = df_cov.loc[mask_fallback, "_segment"].fillna("other")
 
-    # Filter valid band
+    price = df_cov["price_numeric"].fillna(0)
+    df_cov["_band"] = "unknown"
+    for i, (lo, hi) in enumerate(COVERAGE_PRICE_BANDS):
+        mask = (price >= lo) & (price < hi)
+        df_cov.loc[mask, "_band"] = COVERAGE_BAND_LABELS[i]
     df_cov = df_cov[df_cov["_band"] != "unknown"]
     if df_cov.empty:
         return "", []
 
-    # Group: band × segment × brand
-    df_cov["_group"] = np.where(is_target, brand_compare, "Others")
-    ct = df_cov.groupby(["_band", "_segment", "_group"]).size().unstack(
+    ct = df_cov.groupby(["_band", "_segment", "_brand_norm"]).size().unstack(
         fill_value=0
     )
-    gap_col = f"{brand_compare}"
-    others_col = "Others"
-    if gap_col not in ct.columns:
-        gap_col = ct.columns[0]
-    if others_col not in ct.columns:
-        others_col = [c for c in ct.columns if c != gap_col]
-        others_col = others_col[0] if others_col else None
-    if others_col is None:
+    brand_cols = [c for c in ct.columns if c]
+    if len(brand_cols) < 2:
         return "", []
 
-    ct["gap_skus"] = ct[others_col] - ct[gap_col]
-    gaps = ct[ct["gap_skus"] > 0].sort_values("gap_skus", ascending=False)
+    leader_per_row = ct.idxmax(axis=1)
+    max_per_row = ct.max(axis=1)
+    gaps_list = []
+    for idx in ct.index:
+        band, seg = idx[0], idx[1]
+        leader = leader_per_row[idx]
+        leader_count = int(max_per_row[idx])
+        for b in brand_cols:
+            cnt = int(ct.loc[idx, b])
+            gap = leader_count - cnt
+            if gap > 0 and b != leader:
+                gaps_list.append((band, seg, b, leader, gap, cnt, leader_count))
 
-    # Hero insight
+    gaps_list.sort(key=lambda x: -x[4])
+    display_map = {b.strip().lower(): b.strip() for b in brands if b and str(b).strip()}
+    def _disp(s: str) -> str:
+        return display_map.get((s or "").lower(), s or "")
+
     hero = ""
     report_lines = []
-    if len(gaps) > 0:
-        top = gaps.iloc[0]
-        idx = gaps.index[0]
-        band, seg = idx[0], idx[1]
-        n_gap = int(top[gap_col])
-        n_others = int(top[others_col])
+    if gaps_list:
+        band, seg, laggard, leader, gap, n_lag, n_lead = gaps_list[0]
         seg_label = (
             "structured work totes"
             if seg == "work_tote"
             else ("totes" if seg == "tote" else seg.replace("_", " "))
         )
         hero = (
-            f"Coverage gap of {int(top['gap_skus'])} SKUs in ${band} {seg_label} "
-            f"versus category leader ({n_others} vs {n_gap})."
+            f"Coverage gap: {_disp(laggard)} has {gap} SKU gap vs {_disp(leader)} in ${band} {seg_label} "
+            f"({n_lead} vs {n_lag})."
         )
         report_lines = [
             "",
             "**Why this matters:**",
             "- Mid-tier ($60–90) = sweet spot for AOV",
             "- Work totes = office return + higher basket",
-            "- Structured = aspirational positioning",
             "- SKU gap = directly actionable buy decision",
             "",
-            "**All coverage gaps (Others ahead):**",
+            "**Top coverage gaps:**",
             "",
         ]
-        for idx, row in gaps.head(10).iterrows():
-            band, seg = idx[0], idx[1]
-            seg_label = (
-                "work totes"
-                if seg == "work_tote"
-                else ("totes" if seg == "tote" else seg)
-            )
+        for band, seg, laggard, leader, gap, n_lag, n_lead in gaps_list[:10]:
+            seg_label = "work totes" if seg == "work_tote" else ("totes" if seg == "tote" else seg)
             report_lines.append(
-                f"- ${band} {seg_label}: {int(row['gap_skus'])} SKU gap "
-                f"({int(row[others_col])} Others vs {int(row[gap_col])} {brand_compare})"
+                f"- ${band} {seg_label}: {_disp(laggard)} vs {_disp(leader)} — {gap} SKU gap ({n_lead} vs {n_lag})"
             )
     else:
-        # No gaps – show closest (smallest Gap lead)
-        ct["lead"] = ct[gap_col] - ct[others_col]
-        close = ct[ct["lead"] >= 0].sort_values("lead", ascending=True)
-        if len(close) > 0:
-            top = close.iloc[0]
-            idx = close.index[0]
-            band, seg = idx[0], idx[1]
-            seg_label = (
-                "work totes"
-                if seg == "work_tote"
-                else ("totes" if seg == "tote" else seg)
-            )
-            hero = (
-                f"No coverage gaps in current data. Closest segment: ${band} {seg_label} "
-                f"({int(top[gap_col])} {brand_compare} vs {int(top[others_col])} Others)."
-            )
-        else:
-            hero = "No coverage gaps identified with current data."
+        hero = "No coverage gaps in current data (brands are balanced or no segments)."
     return hero, report_lines
+
+
+def _resolve_brands(df: pd.DataFrame, brands: list[str] | None) -> list[str]:
+    """Resolve brands: None=auto (all unique), []=skip, else use given list (filter to those in data)."""
+    if brands is not None and len(brands) == 0:
+        return []
+    if brands is not None:
+        brand_vals = df["brand"].fillna("").astype(str).str.strip()
+        in_data = {b.lower() for b in brand_vals.unique() if b}
+        return [b for b in brands if b and str(b).strip().lower() in in_data]
+    brand_vals = df["brand"].fillna("").astype(str).str.strip()
+    return sorted({b for b in brand_vals.unique() if b}, key=str.lower)
 
 
 def run_gap_analysis(
@@ -481,7 +493,7 @@ def run_gap_analysis(
     quick_test: bool = False,
     plot_umap: bool = False,
     umap_color_by: str = "cluster_kmeans",
-    brand_compare: str | None = "Gap",
+    brands: list[str] | None = None,
     use_metadata: bool = False,
     balance_clustering: bool = False,
 ) -> None:
@@ -525,6 +537,8 @@ def run_gap_analysis(
     df["best_seller"] = [_coerce_bool(p.get("best_seller")) for p in products]
     df["in_stock"] = [_coerce_bool(p.get("in_stock")) for p in products]
 
+    resolved_brands = _resolve_brands(df, brands) if "brand" in df.columns else []
+
     # Clustering features: metadata (reliable) or text embeddings (can be noisy)
     style_texts = [build_style_text(p) for p in products]
     df["style_text"] = style_texts
@@ -548,21 +562,27 @@ def run_gap_analysis(
             features = compute_style_embeddings_clip(style_texts, device=device)
     logger.info("Computed %d feature vectors.", len(features))
 
-    # Stratified sampling for clustering when brand-imbalanced (e.g. 160 Gap vs 50 Others)
+    # Stratified sampling for clustering when brand-imbalanced
     fit_indices = np.arange(len(df))
-    if balance_clustering and brand_compare and "brand" in df.columns:
-        brand_vals = df["brand"].fillna("").astype(str).str.strip()
-        is_target = brand_vals.str.lower() == brand_compare.lower()
-        idx_gap = np.where(is_target)[0]
-        idx_others = np.where(~is_target)[0]
-        n_gap, n_others = len(idx_gap), len(idx_others)
-        if n_gap > 0 and n_others > 0 and abs(n_gap - n_others) > 10:
-            n_sample = min(n_gap, n_others)
+    if balance_clustering and resolved_brands and "brand" in df.columns:
+        brand_vals = df["brand"].fillna("").astype(str).str.strip().str.lower()
+        brand_set = {b.strip().lower() for b in resolved_brands}
+        idx_by_brand = {
+            b: np.where(brand_vals == b)[0] for b in brand_set
+        }
+        counts = [len(idx_by_brand[b]) for b in brand_set if len(idx_by_brand[b]) > 0]
+        if counts and max(counts) - min(counts) > 10:
+            n_per = min(counts)
             rng = np.random.default_rng(42)
-            sample_gap = rng.choice(idx_gap, size=min(n_sample, n_gap), replace=False)
-            sample_others = rng.choice(idx_others, size=min(n_sample, n_others), replace=False)
-            fit_indices = np.concatenate([sample_gap, sample_others])
-            logger.info("Balanced clustering: fit on %d stratified samples (Gap=%d, Others=%d).", len(fit_indices), len(sample_gap), len(sample_others))
+            sampled = []
+            for b in brand_set:
+                idx = idx_by_brand.get(b, np.array([], dtype=int))
+                if len(idx) > 0:
+                    n = min(n_per, len(idx))
+                    sampled.append(rng.choice(idx, size=n, replace=False))
+            if sampled:
+                fit_indices = np.concatenate(sampled)
+                logger.info("Balanced clustering: fit on %d stratified samples (%d brands).", len(fit_indices), len(sampled))
 
     from sklearn.cluster import KMeans
     kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
@@ -646,8 +666,8 @@ def run_gap_analysis(
 
     # Hero: Coverage gap (show first)
     has_hero = False
-    if brand_compare and "brand" in df.columns:
-        hero, cov_lines = _compute_coverage_gaps(df, brand_compare)
+    if resolved_brands and "brand" in df.columns:
+        hero, cov_lines = _compute_coverage_gaps(df, resolved_brands)
         if hero:
             has_hero = True
             report_lines.extend([
@@ -683,72 +703,53 @@ def run_gap_analysis(
         "",
     ])
 
-    # --- Gap vs Others brand comparison ---
-    if brand_compare and "brand" in df.columns:
+    # --- Multi-brand comparison ---
+    def _fmt(v, fmt: str = ".1f"):
+        if v is None or (isinstance(v, (int, float)) and np.isnan(v)):
+            return "—"
+        return f"{v:{fmt}}"
+
+    if resolved_brands and "brand" in df.columns:
         brand_col = "brand"
         brand_vals = df[brand_col].fillna("").astype(str).str.strip()
-        is_target = brand_vals.str.lower() == brand_compare.lower()
-        gap_df = df[is_target]
-        others_df = df[~is_target]
-        n_gap = len(gap_df)
-        n_others = len(others_df)
         report_lines.extend([
-            f"## {n_brand}. Brand comparison: {brand_compare} vs Others",
+            f"## {n_brand}. Brand comparison: " + ", ".join(resolved_brands),
             "",
         ])
-        if n_gap == 0:
-            report_lines.append(f"**Warning:** No {brand_compare} products in this dataset. "
-                "Run with `--from-chroma` to use your ChromaDB data (160 Gap, 50 Others).")
+        brand_dfs = {
+            b: df[brand_vals.str.lower() == b.lower()]
+            for b in resolved_brands
+        }
+        counts = [len(brand_dfs[b]) for b in resolved_brands]
+        if sum(counts) == 0:
+            report_lines.append("**Warning:** No products from specified brands in this dataset.")
             report_lines.append("")
-        elif abs(n_gap - n_others) > 20:
-            report_lines.append(f"*Note: Imbalanced sample ({brand_compare}={n_gap}, Others={n_others}). "
-                "Per-SKU metrics below are comparable; use `--balance-clustering` to reduce cluster bias from majority brand.*")
-            report_lines.append("")
-        report_lines.extend([
-            f"| Metric | {brand_compare} | Others |",
-            "|--------|--------|--------|",
-            f"| **SKU count** | {n_gap} | {n_others} |",
-        ])
-        # Avg price
-        avg_gap = gap_df["price_numeric"].replace(0, np.nan).mean()
-        avg_oth = others_df["price_numeric"].replace(0, np.nan).mean()
-        def _fmt(v, fmt: str = ".1f"):
-            if v is None or (isinstance(v, (int, float)) and np.isnan(v)):
-                return "—"
-            return f"{v:{fmt}}"
-        report_lines.append(f"| **Avg price** | {_fmt(avg_gap)} | {_fmt(avg_oth)} |")
-        # Avg rating
-        avg_r_gap = gap_df["rating"].replace(0, np.nan).mean()
-        avg_r_oth = others_df["rating"].replace(0, np.nan).mean()
-        report_lines.append(f"| **Avg rating** | {_fmt(avg_r_gap, '.2f')} | {_fmt(avg_r_oth, '.2f')} |")
-        # Sale %
-        pct_sale_gap = f"{gap_df['is_sale'].mean() * 100:.0f}%" if n_gap else "—"
-        pct_sale_oth = f"{others_df['is_sale'].mean() * 100:.0f}%" if n_others else "—"
-        report_lines.append(f"| **Sale %** | {pct_sale_gap} | {pct_sale_oth} |")
-        # Best seller %
-        pct_best_gap = f"{gap_df['best_seller'].mean() * 100:.0f}%" if n_gap else "—"
-        pct_best_oth = f"{others_df['best_seller'].mean() * 100:.0f}%" if n_others else "—"
-        report_lines.append(f"| **Best seller %** | {pct_best_gap} | {pct_best_oth} |")
-        # New arrival %
-        pct_new_gap = f"{gap_df['is_new'].mean() * 100:.0f}%" if n_gap else "—"
-        pct_new_oth = f"{others_df['is_new'].mean() * 100:.0f}%" if n_others else "—"
-        report_lines.append(f"| **New arrival %** | {pct_new_gap} | {pct_new_oth} |")
-        # In-stock %
-        pct_stock_gap = f"{gap_df['in_stock'].mean() * 100:.0f}%" if n_gap else "—"
-        pct_stock_oth = f"{others_df['in_stock'].mean() * 100:.0f}%" if n_others else "—"
-        report_lines.append(f"| **In-stock %** | {pct_stock_gap} | {pct_stock_oth} |")
-        # Price band distribution
-        report_lines.extend(["", "**Price band distribution:**", ""])
-        for band in PRICE_BAND_LABELS + ["unknown"]:
-            c_gap = (gap_df["price_band"] == band).sum()
-            c_oth = (others_df["price_band"] == band).sum()
-            report_lines.append(f"- {band}: {brand_compare}={c_gap}, Others={c_oth}")
-        # Cluster distribution
-        report_lines.extend(["", "**Cluster distribution:**", ""])
-        for c in sorted(df[cluster_col].unique()):
-            c_gap = (gap_df[cluster_col] == c).sum()
-            c_oth = (others_df[cluster_col] == c).sum()
-            report_lines.append(f"- Cluster {c}: {brand_compare}={c_gap}, Others={c_oth}")
+        else:
+            header = "| Metric | " + " | ".join(resolved_brands) + " |"
+            report_lines.extend([header, "|" + "--------|" * (len(resolved_brands) + 1)])
+            report_lines.append("| **SKU count** | " + " | ".join(str(len(brand_dfs[b])) for b in resolved_brands) + " |")
+            report_lines.append("| **Avg price** | " + " | ".join(_fmt(brand_dfs[b]["price_numeric"].replace(0, np.nan).mean()) for b in resolved_brands) + " |")
+            report_lines.append("| **Avg rating** | " + " | ".join(_fmt(brand_dfs[b]["rating"].replace(0, np.nan).mean(), ".2f") for b in resolved_brands) + " |")
+            report_lines.append("| **Sale %** | " + " | ".join(
+                f"{brand_dfs[b]['is_sale'].mean() * 100:.0f}%" if len(brand_dfs[b]) else "—" for b in resolved_brands
+            ) + " |")
+            report_lines.append("| **Best seller %** | " + " | ".join(
+                f"{brand_dfs[b]['best_seller'].mean() * 100:.0f}%" if len(brand_dfs[b]) else "—" for b in resolved_brands
+            ) + " |")
+            report_lines.append("| **New arrival %** | " + " | ".join(
+                f"{brand_dfs[b]['is_new'].mean() * 100:.0f}%" if len(brand_dfs[b]) else "—" for b in resolved_brands
+            ) + " |")
+            report_lines.append("| **In-stock %** | " + " | ".join(
+                f"{brand_dfs[b]['in_stock'].mean() * 100:.0f}%" if len(brand_dfs[b]) else "—" for b in resolved_brands
+            ) + " |")
+            report_lines.extend(["", "**Price band distribution:**", ""])
+            for band in PRICE_BAND_LABELS + ["unknown"]:
+                row = f"- {band}: " + ", ".join(f"{b}={ (brand_dfs[b]['price_band'] == band).sum()}" for b in resolved_brands)
+                report_lines.append(row)
+            report_lines.extend(["", "**Cluster distribution:**", ""])
+            for c in sorted(df[cluster_col].unique()):
+                row = f"- Cluster {c}: " + ", ".join(f"{b}={ (brand_dfs[b][cluster_col] == c).sum()}" for b in resolved_brands)
+                report_lines.append(row)
         report_lines.extend(["", "---", ""])
 
     report_lines.extend([
@@ -900,7 +901,7 @@ def main() -> None:
     parser.add_argument(
         "--from-chroma",
         action="store_true",
-        help="Load products from ChromaDB instead of file (requires CHROMA_API_KEY)",
+        help="Load products from ChromaDB (default when no input file given)",
     )
     parser.add_argument(
         "--collection",
@@ -953,10 +954,10 @@ def main() -> None:
         help="Column to color UMAP points by (default: cluster_kmeans). Examples: price_band, rating_quadrant, brand",
     )
     parser.add_argument(
-        "--brand",
+        "--brands",
         type=str,
-        default="Gap",
-        help="Brand to compare vs Others (default: Gap). Use '' to skip brand comparison.",
+        default="auto",
+        help='Comma-separated brands to compare, or "auto" for all, or "" to skip. Example: "Gap,Universal Thread,A New Day"',
     )
     parser.add_argument(
         "--use-metadata",
@@ -970,12 +971,21 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    if args.from_chroma:
+    use_chroma = args.from_chroma or (args.input is None)
+    if use_chroma:
         products = load_products_from_chroma(collection_name=args.collection)
         input_path = None
     else:
         input_path = args.input or (PROJECT_ROOT / "output" / "target_handbags_20260220_213726.csv")
         products = None
+
+    brands_arg = args.brands.strip().lower() if args.brands else ""
+    if brands_arg == "" or brands_arg == "none":
+        brands_param: list[str] | None = []
+    elif brands_arg == "auto":
+        brands_param = None
+    else:
+        brands_param = [b.strip() for b in args.brands.split(",") if b.strip()]
 
     run_gap_analysis(
         output_dir=args.output_dir,
@@ -988,7 +998,7 @@ def main() -> None:
         quick_test=args.quick_test,
         plot_umap=args.plot_umap,
         umap_color_by=args.umap_color_by,
-        brand_compare=args.brand if args.brand else None,
+        brands=brands_param,
         use_metadata=args.use_metadata,
         balance_clustering=args.balance_clustering,
     )

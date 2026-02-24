@@ -2,31 +2,38 @@
 """
 Enhanced taxonomy clustering: cleaner signal, hybrid embeddings, HDBSCAN, auto discovery.
 
+Data source: Loads from ChromaDB by default. CSV is reference only (schema/columns).
+  Use -i/--input to load from CSV instead (fallback/testing).
+
 Upgrades over run_taxonomy_clustering.py:
-  1. Brand tokens from CSV brand column + statistical stopwords (>80% doc freq)
+  1. Brand tokens from brand column + statistical stopwords (>80% doc freq)
   2. Hybrid embeddings: MiniLM/TF-IDF + TF-IDF n-grams + price/material/sale flags
   3. HDBSCAN within each silhouette (no k guessing, handles noise)
   4. Evaluation: silhouette, Davies-Bouldin, retailer purity, price variance
   5. Optional stronger model: all-mpnet-base-v2
 
-Visual upgrades (NO change to clustering logic):
-  - Keep PCA scatter (existing), but add optional UMAP/t-SNE embeddings for visualization
-  - Add per-silhouette 2D plots (reduces clutter)
-  - Add density-ish view via alpha + downsampling
-  - Add “top segments only” plots
+Visual upgrades: PCA/UMAP/t-SNE scatter, per-silhouette plots.
 
 Usage:
-  python scripts/run_taxonomy_clustering_enhanced.py -n output/products_normalized_combined.csv
-  python scripts/run_taxonomy_clustering_enhanced.py --tfidf --min-cluster-size 10
-  python scripts/run_taxonomy_clustering_enhanced.py --viz umap
-  python scripts/run_taxonomy_clustering_enhanced.py --viz tsne
+  python scripts/run_taxonomy_clustering_enhanced.py
+  python scripts/run_taxonomy_clustering_enhanced.py --collection target_handbags
+  python scripts/run_taxonomy_clustering_enhanced.py --passthrough
+  python scripts/run_taxonomy_clustering_enhanced.py -i output/products_mission_enriched.csv
 """
 from __future__ import annotations
 
 import argparse
+import os
 import re
 from datetime import datetime
 from pathlib import Path
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+except ImportError:
+    pass
+from urllib.parse import urlparse
 
 import numpy as np
 import pandas as pd
@@ -67,8 +74,181 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_INPUT = PROJECT_ROOT / "output" / "products_normalized_combined.csv"
+REFERENCE_CSV = PROJECT_ROOT / "output" / "products_mission_enriched.csv"
 DEFAULT_OUT = PROJECT_ROOT / "output" / "taxonomy_enhanced"
+
+CHROMA_PAGE_SIZE = 300
+
+
+def _get_chroma_client(
+    api_key: str | None = None,
+    tenant: str | None = None,
+    database: str | None = None,
+    chroma_url: str | None = None,
+    chroma_user: str | None = None,
+    chroma_password: str | None = None,
+):
+    """Create ChromaDB client (Cloud or self-hosted)."""
+    import chromadb
+    from chromadb.config import Settings
+
+    api_key = api_key or os.environ.get("CHROMA_API_KEY")
+    if api_key:
+        kwargs: dict = {"api_key": api_key}
+        if tenant or os.environ.get("CHROMA_TENANT"):
+            kwargs["tenant"] = tenant or os.environ.get("CHROMA_TENANT")
+        if database or os.environ.get("CHROMA_DATABASE"):
+            kwargs["database"] = database or os.environ.get("CHROMA_DATABASE")
+        return chromadb.CloudClient(**kwargs)
+
+    url = chroma_url or os.environ.get("CHROMA_HTTP_URL")
+    if not url and os.environ.get("CHROMA_HTTP_HOST"):
+        host = os.environ.get("CHROMA_HTTP_HOST", "localhost")
+        port = os.environ.get("CHROMA_HTTP_PORT", "8000")
+        url = f"http://{host}:{port}"
+    url = url or "http://localhost:8000"
+    parsed = urlparse(str(url))
+    host = parsed.hostname or "localhost"
+    port = parsed.port or 8000
+
+    settings_kw: dict = {}
+    user = chroma_user or os.environ.get("CHROMA_HTTP_USER")
+    pwd = chroma_password or os.environ.get("CHROMA_HTTP_PASSWORD")
+    if not user and not pwd:
+        creds = os.environ.get("CHROMA_AUTH_CREDENTIALS", "")
+        if ":" in creds:
+            user, _, pwd = creds.partition(":")
+    if user and pwd:
+        settings_kw = {
+            "chroma_client_auth_provider": "chromadb.auth.basic_authn.BasicAuthClientProvider",
+            "chroma_client_auth_credentials": f"{user}:{pwd}",
+        }
+    return chromadb.HttpClient(
+        host=str(host),
+        port=int(port),
+        settings=Settings(**settings_kw) if settings_kw else Settings(),
+    )
+
+
+def load_from_chroma(
+    collection_name: str,
+    api_key: str | None = None,
+    tenant: str | None = None,
+    database: str | None = None,
+    chroma_url: str | None = None,
+    chroma_user: str | None = None,
+    chroma_password: str | None = None,
+) -> tuple[list[dict], list[list[float]] | None, list[str]]:
+    """
+    Load all products from ChromaDB with metadata and documents.
+    Returns (rows, embeddings, chroma_ids). embeddings may be None.
+    """
+    client = _get_chroma_client(
+        api_key=api_key,
+        tenant=tenant,
+        database=database,
+        chroma_url=chroma_url,
+        chroma_user=chroma_user,
+        chroma_password=chroma_password,
+    )
+    collection = client.get_collection(name=collection_name)
+    all_ids: list[str] = []
+    all_metadatas: list[dict] = []
+    all_documents: list[str] = []
+    all_embeddings: list[list[float]] | None = []
+
+    offset = 0
+    while True:
+        result = collection.get(
+            include=["metadatas", "documents", "embeddings"],
+            limit=CHROMA_PAGE_SIZE,
+            offset=offset,
+        )
+        ids = result.get("ids") or []
+        metadatas = result.get("metadatas") or []
+        documents = result.get("documents") or [""] * len(ids)
+        embeddings = result.get("embeddings")
+        if not ids:
+            break
+        all_ids.extend(ids)
+        all_metadatas.extend(metadatas)
+        all_documents.extend(documents)
+        if embeddings is not None:
+            if all_embeddings is None:
+                all_embeddings = []
+            all_embeddings.extend(embeddings)
+        if len(ids) < CHROMA_PAGE_SIZE:
+            break
+        offset += len(ids)
+
+    def _s(v):
+        if v is None or (isinstance(v, float) and (v != v or v == float("nan"))):
+            return ""
+        s = str(v).strip()
+        return "" if s in ("", "nan", "None", "{}") else s
+
+    rows = []
+    for i, pid in enumerate(all_ids):
+        meta = (all_metadatas[i] if i < len(all_metadatas) else {}) or {}
+        meta["product_id"] = meta.get("product_id") or pid
+        meta["document"] = all_documents[i] if i < len(all_documents) else ""
+        meta["name"] = _s(meta.get("name") or meta.get("title"))
+        rows.append(meta)
+
+    emb_list = all_embeddings if (all_embeddings and len(all_embeddings) == len(rows)) else None
+    return rows, emb_list, list(all_ids)
+
+
+def load_from_csv(path: Path) -> list[dict]:
+    """Load products from CSV (reference/fallback only; data should come from DB)."""
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(f"Input file not found: {path}")
+    import csv
+    with open(path, encoding="utf-8-sig", newline="") as f:
+        rows = list(csv.DictReader(f))
+    for r in rows:
+        r["product_id"] = str(r.get("product_id") or r.get("tcin") or r.get("id", "")).strip()
+        r["name"] = str(r.get("name") or r.get("product_name") or r.get("title", "")).strip()
+    return rows
+
+
+def _leaf_from_breadcrumb(breadcrumb: str | None) -> str:
+    """Derive leaf category from breadcrumb. Supports both > (Target) and / (Gap) separators."""
+    if not breadcrumb or not str(breadcrumb).strip():
+        return ""
+    s = str(breadcrumb).strip()
+    # Try > first (Target: "Target > Clothing > Clutches"), else / (Gap: "Women / Bags > Women > Bags")
+    for sep in (">", "/"):
+        if sep in s:
+            parts = [p.strip() for p in s.split(sep) if p.strip()]
+            return parts[-1] if parts else ""
+    return s
+
+
+def _derive_source_from_url(url: str | None) -> str:
+    """Derive retailer source from product_url (e.g. target.com -> target, gap.com -> gap)."""
+    if not url or not str(url).strip():
+        return "unknown"
+    try:
+        parsed = urlparse(str(url))
+        netloc = (parsed.netloc or "").lower()
+        if "target.com" in netloc:
+            return "target"
+        if "gap.com" in netloc:
+            return "gap"
+        if "aritzia.com" in netloc:
+            return "aritzia"
+        if "abercrombie.com" in netloc or "abercrombieandfitch.com" in netloc:
+            return "abercrombie"
+        if "jcrew.com" in netloc or "jcrewfactory.com" in netloc:
+            return "jcrew"
+        # Fallback: use first part of domain before .com
+        if "." in netloc:
+            return netloc.split(".")[-2] if len(netloc.split(".")) >= 2 else "unknown"
+    except Exception:
+        pass
+    return "unknown"
 
 # Base stopwords (always remove)
 BASE_STOP = frozenset({
@@ -186,6 +366,13 @@ def build_raw_text(row: dict) -> str:
             mt_str = str(mt).strip()
         if mt_str:
             parts.append(mt_str)
+    # Include segment_label and subcluster_label when present (enriched data)
+    for col in ("segment_label", "subcluster_label"):
+        v = row.get(col)
+        if v is not None and not (isinstance(v, float) and pd.isna(v)):
+            s = str(v).strip()
+            if s:
+                parts.append(s)
     return " ".join(p for p in parts if p)
 
 
@@ -362,6 +549,22 @@ def tag_price_tier(p: float) -> str:
     return "Premium"
 
 
+def tag_price_bracket(p: float) -> str:
+    """Tag individual product price into exact bracket for graph labels."""
+    if p < 30:
+        return "$0-30"
+    if p < 60:
+        return "$30-60"
+    if p < 90:
+        return "$60-90"
+    if p < 120:
+        return "$90-120"
+    return "$120+"
+
+
+PRICE_BRACKET_ORDER = ["$0-30", "$30-60", "$60-90", "$90-120", "$120+"]
+
+
 def label_cluster_enhanced(block: pd.DataFrame, subcluster_col: str = "subcluster") -> dict[int, str]:
     if subcluster_col not in block.columns:
         return {}
@@ -438,8 +641,9 @@ def compute_analytics_and_visuals(df: pd.DataFrame, output_dir: Path) -> None:
 
     logger.info("Generating post-processing analytics and visuals...")
 
-    # 1) Price Tier tagging
+    # 1) Price Tier tagging (for analytics) and price bracket (for graph labels)
     df["price_tier"] = df["price_current"].map(tag_price_tier)
+    df["price_bracket"] = df["price_current"].map(tag_price_bracket)
 
     # 2) Segment key (silhouette × material × price tier)
     df["segment_key"] = (
@@ -521,33 +725,95 @@ def compute_analytics_and_visuals(df: pd.DataFrame, output_dir: Path) -> None:
     opp.to_csv(output_dir / "segment_opportunity_ranked.csv")
     logger.info("  → segment_opportunity_ranked.csv")
 
-    # === VISUALIZATIONS ===
-    tier_order = ["Entry", "Mid", "Mid+", "Upper Mid", "Premium"]
+    # 9) Mission penetration by segment (when mission_tags present)
+    if "mission_tags" in df.columns and df["mission_tags"].notna().any():
+        mission_rows = []
+        for _, row in df.iterrows():
+            tags = row.get("mission_tags")
+            if pd.isna(tags) or not str(tags).strip():
+                continue
+            seg = row.get("segment_key", "")
+            for t in str(tags).split("|"):
+                t = t.strip()
+                if t:
+                    mission_rows.append({"segment_key": seg, "mission_id": t})
+        if mission_rows:
+            mission_df = pd.DataFrame(mission_rows)
+            mp_seg = (
+                mission_df.groupby(["segment_key", "mission_id"])
+                .size()
+                .reset_index(name="sku_count")
+            )
+            seg_totals = mission_df.groupby("segment_key").size()
+            mp_seg["pct_of_segment"] = mp_seg.apply(
+                lambda r: 100 * r["sku_count"] / seg_totals.get(r["segment_key"], 1), axis=1
+            )
+            mp_seg.to_csv(output_dir / "mission_penetration_by_segment.csv", index=False)
+            logger.info("  → mission_penetration_by_segment.csv")
 
-    # Chart 1: SKU distribution by price tier (Target vs Gap)
+    # 10) Mission × retailer heatmap (when mission_tags present)
+    if "mission_tags" in df.columns and df["mission_tags"].notna().any() and "source" in df.columns:
+        mission_src_rows = []
+        for _, row in df.iterrows():
+            tags = row.get("mission_tags")
+            if pd.isna(tags) or not str(tags).strip():
+                continue
+            src = row.get("source", "unknown")
+            for t in str(tags).split("|"):
+                t = t.strip()
+                if t:
+                    mission_src_rows.append({"mission_id": t, "source": src})
+        if mission_src_rows:
+            ms_df = pd.DataFrame(mission_src_rows)
+            heat_mission = (
+                ms_df.groupby(["mission_id", "source"]).size().unstack(fill_value=0)
+            )
+            heat_mission_pct = heat_mission.div(heat_mission.sum(axis=1), axis=0) * 100
+            heat_mission_pct.to_csv(output_dir / "mission_retailer_pct.csv")
+            fig, ax = plt.subplots(figsize=(10, max(6, heat_mission_pct.shape[0] * 0.35)))
+            if HAS_SEABORN:
+                sns.heatmap(heat_mission_pct, annot=True, fmt=".1f", ax=ax, cmap="YlOrRd")
+            else:
+                ax.imshow(heat_mission_pct.values, aspect="auto")
+                ax.set_yticks(np.arange(heat_mission_pct.shape[0]))
+                ax.set_yticklabels(list(heat_mission_pct.index))
+                ax.set_xticks(np.arange(heat_mission_pct.shape[1]))
+                ax.set_xticklabels(list(heat_mission_pct.columns), rotation=45, ha="right")
+            ax.set_title("Mission Penetration % by Retailer (rows sum to 100%)")
+            ax.set_xlabel("Retailer")
+            ax.set_ylabel("Mission")
+            plt.tight_layout()
+            plt.savefig(output_dir / "mission_retailer_heatmap.png", dpi=120, bbox_inches="tight")
+            plt.close()
+            logger.info("  → mission_retailer_heatmap.png")
+
+    # === VISUALIZATIONS ===
+    bracket_order = PRICE_BRACKET_ORDER
+
+    # Chart 1: SKU distribution by price bracket (Target vs Gap)
     df_plot = (
-        df.groupby(["price_tier", "source"])["product_id"]
+        df.groupby(["price_bracket", "source"])["product_id"]
         .count()
         .reset_index(name="count")
     )
-    df_plot["price_tier"] = pd.Categorical(df_plot["price_tier"], categories=tier_order, ordered=True)
-    df_plot = df_plot.sort_values("price_tier")
+    df_plot["price_bracket"] = pd.Categorical(df_plot["price_bracket"], categories=bracket_order, ordered=True)
+    df_plot = df_plot.sort_values("price_bracket").dropna(subset=["price_bracket"])
 
     fig, ax = plt.subplots(figsize=(10, 6))
     if HAS_SEABORN:
-        sns.barplot(data=df_plot, x="price_tier", y="count", hue="source", ax=ax)
+        sns.barplot(data=df_plot, x="price_bracket", y="count", hue="source", ax=ax)
     else:
         # Matplotlib fallback: side-by-side bars
-        xs = np.arange(len(tier_order))
-        tgt = df_plot[df_plot["source"] == "target"].set_index("price_tier")["count"].reindex(tier_order).fillna(0).values
-        gap = df_plot[df_plot["source"] == "gap"].set_index("price_tier")["count"].reindex(tier_order).fillna(0).values
+        xs = np.arange(len(bracket_order))
+        tgt = df_plot[df_plot["source"] == "target"].set_index("price_bracket")["count"].reindex(bracket_order).fillna(0).values
+        gap = df_plot[df_plot["source"] == "gap"].set_index("price_bracket")["count"].reindex(bracket_order).fillna(0).values
         w = 0.35
         ax.bar(xs - w/2, tgt, width=w, label="target")
         ax.bar(xs + w/2, gap, width=w, label="gap")
         ax.set_xticks(xs)
-        ax.set_xticklabels(tier_order)
-    ax.set_title("SKU Distribution by Price Tier & Retailer")
-    ax.set_xlabel("Price Tier")
+        ax.set_xticklabels(bracket_order)
+    ax.set_title("SKU Distribution by Price Bracket & Retailer")
+    ax.set_xlabel("Price Bracket ($)")
     ax.set_ylabel("SKU Count")
     ax.legend()
     plt.tight_layout()
@@ -555,12 +821,12 @@ def compute_analytics_and_visuals(df: pd.DataFrame, output_dir: Path) -> None:
     plt.close()
     logger.info("  → sku_distribution_price.png")
 
-    # Chart 2: Retailer share heatmap (silhouette × price tier)
+    # Chart 2: Retailer share heatmap (silhouette × price bracket)
     heat = (
-        df.groupby(["silhouette", "price_tier", "source"])["product_id"]
+        df.groupby(["silhouette", "price_bracket", "source"])["product_id"]
         .count()
         .reset_index(name="count")
-        .pivot_table(index="silhouette", columns=["price_tier", "source"], values="count", fill_value=0)
+        .pivot_table(index="silhouette", columns=["price_bracket", "source"], values="count", fill_value=0)
     )
     heat_norm = heat.div(heat.sum(axis=1), axis=0) * 100
 
@@ -573,19 +839,19 @@ def compute_analytics_and_visuals(df: pd.DataFrame, output_dir: Path) -> None:
         ax.set_yticklabels(list(heat_norm.index))
         ax.set_xticks(np.arange(heat_norm.shape[1]))
         ax.set_xticklabels([f"{a}|{b}" for (a, b) in heat_norm.columns], rotation=90)
-    ax.set_title("Retailer Share % by Silhouette × Price Tier")
-    ax.set_xlabel("Price Tier × Retailer")
+    ax.set_title("Retailer Share % by Silhouette × Price Bracket")
+    ax.set_xlabel("Price Bracket × Retailer")
     ax.set_ylabel("Silhouette")
     plt.tight_layout()
     plt.savefig(output_dir / "retailer_share_heatmap.png", dpi=120, bbox_inches="tight")
     plt.close()
     logger.info("  → retailer_share_heatmap.png")
 
-    # Chart 3: Premium participation
+    # Chart 3: Premium participation ($120+)
     fig, ax = plt.subplots(figsize=(7, 5))
     premium_part["premium_pct"].plot(kind="bar", ax=ax)
-    ax.set_title("Premium Tier Participation (%) by Retailer")
-    ax.set_ylabel("% Premium SKUs")
+    ax.set_title("Premium ($120+) Participation (%) by Retailer")
+    ax.set_ylabel("% Premium ($120+) SKUs")
     ax.set_xlabel("Retailer")
     ax.set_xticklabels(premium_part.index, rotation=0)
     plt.tight_layout()
@@ -595,18 +861,18 @@ def compute_analytics_and_visuals(df: pd.DataFrame, output_dir: Path) -> None:
 
     # Chart 4: Price spread boxplot
     df_box = df.copy()
-    df_box["price_tier"] = pd.Categorical(df_box["price_tier"], categories=tier_order, ordered=True)
-    df_box = df_box.sort_values("price_tier")
+    df_box["price_bracket"] = pd.Categorical(df_box["price_bracket"], categories=bracket_order, ordered=True)
+    df_box = df_box.sort_values("price_bracket").dropna(subset=["price_bracket"])
 
     fig, ax = plt.subplots(figsize=(12, 6))
     if HAS_SEABORN:
-        sns.boxplot(data=df_box, x="price_tier", y="price_current", hue="source", ax=ax)
+        sns.boxplot(data=df_box, x="price_bracket", y="price_current", hue="source", ax=ax)
     else:
-        # Matplotlib fallback: show only overall distribution by tier (no retailer split)
-        data = [df_box[df_box["price_tier"] == t]["price_current"].values for t in tier_order]
-        ax.boxplot(data, labels=tier_order, showfliers=False)
-    ax.set_title("Price Distribution by Price Tier & Retailer")
-    ax.set_xlabel("Price Tier")
+        # Matplotlib fallback: show only overall distribution by bracket (no retailer split)
+        data = [df_box[df_box["price_bracket"] == b]["price_current"].values for b in bracket_order]
+        ax.boxplot(data, labels=bracket_order, showfliers=False)
+    ax.set_title("Price Distribution by Price Bracket & Retailer")
+    ax.set_xlabel("Price Bracket ($)")
     ax.set_ylabel("Price ($)")
     plt.tight_layout()
     plt.savefig(output_dir / "price_spread_boxplot.png", dpi=120, bbox_inches="tight")
@@ -858,8 +1124,15 @@ def _plot_enhanced(
 
 
 def run(
-    input_path: Path = DEFAULT_INPUT,
+    input_path: Path | None = None,
     output_dir: Path = DEFAULT_OUT,
+    collection_name: str = "target_handbags",
+    chroma_api_key: str | None = None,
+    chroma_tenant: str | None = None,
+    chroma_database: str | None = None,
+    chroma_url: str | None = None,
+    chroma_user: str | None = None,
+    chroma_password: str | None = None,
     use_tfidf_only: bool = False,
     min_silhouette_size: int = 10,
     min_cluster_size: int = 5,
@@ -868,9 +1141,33 @@ def run(
     viz_method: str = "pca",
     scatter_max_points: int = 450,
     per_silhouette_plots: bool = True,
+    use_passthrough: bool = False,
+    brands_filter: list[str] | None = None,
+    focus_brand: str | None = None,
+    target_brand: str | None = None,  # deprecated; use focus_brand
+    competitor_brands: list[str] | None = None,
 ) -> None:
-    logger.info("Loading %s ...", input_path)
-    df = pd.read_csv(input_path, encoding="utf-8-sig")
+    # Load data: ChromaDB by default, CSV only when -i/--input is explicitly passed
+    logger.info("Loading data from %s ...", "ChromaDB" if input_path is None else input_path)
+
+    if input_path is None:
+        rows, _embeddings, _chroma_ids = load_from_chroma(
+            collection_name=collection_name,
+            api_key=chroma_api_key,
+            tenant=chroma_tenant,
+            database=chroma_database,
+            chroma_url=chroma_url,
+            chroma_user=chroma_user,
+            chroma_password=chroma_password,
+        )
+        if not rows:
+            raise ValueError(f"No products in ChromaDB collection '{collection_name}'.")
+        df = pd.DataFrame(rows)
+        logger.info("Loaded %d products from ChromaDB.", len(df))
+    else:
+        rows = load_from_csv(input_path)
+        df = pd.DataFrame(rows)
+        logger.info("Loaded %d products from CSV (fallback).", len(df))
 
     # Schema compatibility: collapsed output uses price, is_on_sale; taxonomy expects price_current, is_sale
     if "price_current" not in df.columns and "price" in df.columns:
@@ -879,8 +1176,27 @@ def run(
         df["is_sale"] = df["is_on_sale"]
     if "product_id" not in df.columns and "product_url" in df.columns:
         df["product_id"] = df["product_url"].fillna("").astype(str)
+    # Enriched input: derive source from product_url when missing
     if "source" not in df.columns:
-        df["source"] = "target"
+        url_col = df.get("product_url", df.get("url", pd.Series([""] * len(df))))
+        df["source"] = url_col.fillna("").astype(str).map(_derive_source_from_url)
+        if (df["source"] == "unknown").all():
+            df["source"] = "target"
+    # Enriched input: derive leaf_category from category_breadcrumb when missing
+    if "leaf_category" not in df.columns:
+        bc = df.get("category_breadcrumb", pd.Series([""] * len(df)))
+        df["leaf_category"] = bc.fillna("").astype(str).map(_leaf_from_breadcrumb)
+
+    # Filter to specified brands before embeddings/clustering (ensures clusters are brand-specific)
+    if brands_filter:
+        import sys
+        _scripts = Path(__file__).resolve().parent
+        if str(_scripts) not in sys.path:
+            sys.path.insert(0, str(_scripts))
+        from mission_density_engine import filter_rows_by_brands
+        rows_filt = filter_rows_by_brands(df.to_dict(orient="records"), brands_filter)
+        df = pd.DataFrame(rows_filt)
+        logger.info("Filtered to %d products (brands: %s) for embeddings and clustering.", len(df), brands_filter)
 
     df["product_id"] = df["product_id"].astype(str)
     df["text_raw"] = df.apply(build_raw_text, axis=1)
@@ -904,56 +1220,78 @@ def run(
 
     # 3) Final cleaned text + derived fields
     df["text_clean"] = df["text_raw"].apply(lambda s: clean_text_enhanced(s, brand_tokens, statistical_stop))
-    df["silhouette"] = df["text_raw"].map(classify_silhouette)
     df["material"] = df["text_raw"].map(extract_material)
     df["price_current"] = pd.to_numeric(df["price_current"], errors="coerce").fillna(0)
 
-    logger.info("Silhouette distribution: %s", df["silhouette"].value_counts().to_dict())
+    # Passthrough mode: use pre-clustered segment_label/subcluster from enriched input
+    _sub = pd.to_numeric(df["subcluster"], errors="coerce") if "subcluster" in df.columns else pd.Series(dtype=float)
+    has_enriched = (
+        "segment_label" in df.columns and "subcluster" in df.columns and
+        df["segment_label"].notna().any() and (_sub.notna() & (_sub >= 0)).any()
+    )
+    if use_passthrough and has_enriched:
+        df["silhouette"] = df["segment_label"].fillna("").astype(str)
+        df["subcluster"] = pd.to_numeric(df["subcluster"], errors="coerce").fillna(-1).astype(int)
+        df["subcluster_score"] = np.nan
+        # Keep segment_label and subcluster_label from input
+        df["segment_label"] = df.get("subcluster_label", df["segment_label"]).fillna("").astype(str)
+        all_evals = []
+        logger.info("Passthrough mode: using pre-clustered segment_label/subcluster")
+        logger.info("Segment distribution: %s", df["silhouette"].value_counts().to_dict())
+    else:
+        df["silhouette"] = df["text_raw"].map(classify_silhouette)
+        logger.info("Silhouette distribution: %s", df["silhouette"].value_counts().to_dict())
 
-    # Cluster fields
-    df["subcluster"] = -1
-    df["subcluster_score"] = np.nan
-    df["segment_label"] = ""
-    all_evals = []
+        # Preserve enriched columns before overwriting (when re-clustering enriched data)
+        if has_enriched:
+            df["enriched_segment_label"] = df["segment_label"].fillna("").astype(str)
+            df["enriched_subcluster"] = df["subcluster"]
+            df["enriched_subcluster_label"] = df.get("subcluster_label", pd.Series([""] * len(df))).fillna("").astype(str)
 
-    # --- CLUSTERING LOOP (UNCHANGED LOGIC) ---
-    for sil in df["silhouette"].unique():
-        block = df[df["silhouette"] == sil].copy()
-        n = len(block)
+        # Cluster fields
+        df["subcluster"] = -1
+        df["subcluster_score"] = np.nan
+        df["segment_label"] = ""
+        all_evals = []
 
-        if n < min_silhouette_size:
-            df.loc[block.index, "subcluster"] = 0
-            df.loc[block.index, "segment_label"] = f"{sil} – small group – {_price_tier(block['price_current'].median())}"
-            logger.info("  %s: %d items → single segment", sil, n)
-            continue
+        # --- CLUSTERING LOOP ---
+        for sil in df["silhouette"].unique():
+            block = df[df["silhouette"] == sil].copy()
+            n = len(block)
 
-        X = get_hybrid_embeddings(
-            block,
-            use_sentence_transformer=not use_tfidf_only,
-            model_name=model_name,
-            add_numeric=True,
-        )
-        labels = cluster_hdbscan(X, min_cluster_size=min_cluster_size)
-        n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
+            if n < min_silhouette_size:
+                df.loc[block.index, "subcluster"] = 0
+                df.loc[block.index, "segment_label"] = f"{sil} – small group – {_price_tier(block['price_current'].median())}"
+                logger.info("  %s: %d items → single segment", sil, n)
+                continue
 
-        df.loc[block.index, "subcluster"] = labels
-        block = block.copy()
-        block["subcluster"] = labels
+            X = get_hybrid_embeddings(
+                block,
+                use_sentence_transformer=not use_tfidf_only,
+                model_name=model_name,
+                add_numeric=True,
+            )
+            labels = cluster_hdbscan(X, min_cluster_size=min_cluster_size)
+            n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
 
-        ev = evaluate_clusters(block, X)
-        ev["silhouette_name"] = sil
-        ev["n"] = n
-        ev["n_clusters"] = n_clusters
-        all_evals.append(ev)
-        df.loc[block.index, "subcluster_score"] = ev["silhouette"]
+            df.loc[block.index, "subcluster"] = labels
+            block = block.copy()
+            block["subcluster"] = labels
 
-        mapping = label_cluster_enhanced(block)
-        for c, lab in mapping.items():
-            mask = (df["silhouette"] == sil) & (df["subcluster"] == c)
-            df.loc[mask, "segment_label"] = f"{sil} – {lab}"
+            ev = evaluate_clusters(block, X)
+            ev["silhouette_name"] = sil
+            ev["n"] = n
+            ev["n_clusters"] = n_clusters
+            all_evals.append(ev)
+            df.loc[block.index, "subcluster_score"] = ev["silhouette"]
 
-        logger.info("  %s: %d items → %d clusters, sil=%.3f, DB=%.2f",
-                    sil, n, n_clusters, ev["silhouette"], ev["davies_bouldin"])
+            mapping = label_cluster_enhanced(block)
+            for c, lab in mapping.items():
+                mask = (df["silhouette"] == sil) & (df["subcluster"] == c)
+                df.loc[mask, "segment_label"] = f"{sil} – {lab}"
+
+            logger.info("  %s: %d items → %d clusters, sil=%.3f, DB=%.2f",
+                        sil, n, n_clusters, ev["silhouette"], ev["davies_bouldin"])
 
     # Global embeddings for scatter (viz only)
     X_global = get_hybrid_embeddings(
@@ -977,6 +1315,26 @@ def run(
     except Exception as ex:
         logger.warning("Analytics generation failed: %s", ex)
 
+    # Mission density and white space gaps (Brand x Category x Mission x Price Band)
+    if "mission_tags" in df.columns and df["mission_tags"].notna().any():
+        try:
+            import sys
+            scripts_dir = Path(__file__).resolve().parent
+            if str(scripts_dir) not in sys.path:
+                sys.path.insert(0, str(scripts_dir))
+            from mission_density_engine import compute_mission_density_and_gaps
+            rows = df.to_dict(orient="records")
+            compute_mission_density_and_gaps(
+                rows,
+                output_dir=output_dir,
+                focus_brand=focus_brand,
+                target_brand=target_brand,
+                competitor_brands=competitor_brands,
+                brands_filter=brands_filter,
+            )
+        except Exception as ex:
+            logger.warning("Mission density computation failed: %s", ex)
+
     # Visualizations (with UMAP/t-SNE options, plus per-silhouette plots)
     if HAS_MATPLOTLIB:
         _plot_enhanced(
@@ -997,7 +1355,7 @@ def run(
         "# Enhanced Taxonomy Report",
         "",
         f"**Date:** {ts}",
-        f"**Input:** {input_path.name}",
+        f"**Input:** {collection_name if input_path is None else input_path.name}",
         "",
         "## Clustering quality",
         "",
@@ -1070,8 +1428,15 @@ def run(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Enhanced taxonomy clustering")
-    parser.add_argument("-n", "--normalized", type=Path, default=DEFAULT_INPUT)
+    parser = argparse.ArgumentParser(description="Enhanced taxonomy clustering (data from ChromaDB by default)")
+    parser.add_argument(
+        "-i", "--input",
+        type=Path,
+        default=None,
+        help="CSV path to load from file instead of DB (fallback; DB is primary source).",
+    )
+    parser.add_argument("--reference-csv", type=Path, default=REFERENCE_CSV, help="Reference CSV for schema (default: products_mission_enriched.csv)")
+    parser.add_argument("--passthrough", action="store_true", help="Use pre-clustered segment/subcluster from enriched (skip HDBSCAN)")
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUT)
     parser.add_argument("--tfidf", action="store_true", help="TF-IDF only (no sentence-transformers)")
     parser.add_argument("--min-size", type=int, default=10)
@@ -1083,12 +1448,45 @@ def main() -> None:
     parser.add_argument("--viz", default="pca", choices=["pca", "umap", "tsne"], help="2D viz projection method (viz only)")
     parser.add_argument("--scatter-max", type=int, default=450, help="Max points in global scatter (downsample for readability)")
     parser.add_argument("--no-per-silhouette", action="store_true", help="Disable per-silhouette subcluster plots")
+    # Brand filter: restricts embeddings, clustering, and density to these brands only
+    parser.add_argument(
+        "--brands",
+        default=None,
+        help="Comma-separated brands to include (e.g. universal thread,gap). Filters data before embeddings/clustering.",
+    )
+    parser.add_argument("--focus-brand", default=None, dest="focus_brand", help="Brand to analyze for white space (e.g. universal thread, gap). Comparisons are brand vs brand.")
+    parser.add_argument("--target", default=None, dest="target_brand", help="(Deprecated) Use --focus-brand. If 'target', infers focus brand from Target-sourced rows.")
+    parser.add_argument("--competitors", default=None, help="Comma-separated competitor brands (e.g. gap,jcrew).")
+    # ChromaDB args (used when loading from DB)
+    parser.add_argument("--collection", default="target_handbags", help="ChromaDB collection name")
+    parser.add_argument("--chroma-api-key", default=os.environ.get("CHROMA_API_KEY"))
+    parser.add_argument("--chroma-tenant", default=os.environ.get("CHROMA_TENANT"))
+    parser.add_argument("--chroma-database", default=os.environ.get("CHROMA_DATABASE"))
+    parser.add_argument("--chroma-url", default=os.environ.get("CHROMA_HTTP_URL"))
+    parser.add_argument("--chroma-user", default=os.environ.get("CHROMA_HTTP_USER"))
+    parser.add_argument("--chroma-password", default=os.environ.get("CHROMA_HTTP_PASSWORD"))
 
     args = parser.parse_args()
 
+    brands_filter = [b.strip() for b in args.brands.split(",")] if args.brands else None
+    focus_brand = (args.focus_brand or "").strip() or None
+    target_brand = (args.target_brand or "").strip() or None
+    competitor_brands = [b.strip() for b in args.competitors.split(",")] if args.competitors else None
+
     run(
-        input_path=args.normalized,
+        input_path=args.input,
         output_dir=args.output_dir,
+        collection_name=args.collection,
+        brands_filter=brands_filter,
+        focus_brand=focus_brand,
+        target_brand=target_brand,
+        competitor_brands=competitor_brands,
+        chroma_api_key=args.chroma_api_key,
+        chroma_tenant=args.chroma_tenant,
+        chroma_database=args.chroma_database,
+        chroma_url=args.chroma_url,
+        chroma_user=args.chroma_user,
+        chroma_password=args.chroma_password,
         use_tfidf_only=args.tfidf,
         min_silhouette_size=args.min_size,
         min_cluster_size=args.min_cluster_size,
@@ -1097,6 +1495,7 @@ def main() -> None:
         viz_method=args.viz,
         scatter_max_points=args.scatter_max,
         per_silhouette_plots=(not args.no_per_silhouette),
+        use_passthrough=args.passthrough,
     )
 
 

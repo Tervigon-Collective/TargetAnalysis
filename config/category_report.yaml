@@ -1,0 +1,27 @@
+# Category report configuration
+# Optional. If missing, defaults are used. No hardcoded keywords in code.
+
+# Price bands for coverage-gap analysis (lo, hi) in dollars; last band uses 9999 as hi
+price_bands:
+  bounds: [0, 20, 40, 60, 90, 120, 9999]
+  labels: ["0-20", "20-40", "40-60", "60-90", "90-120", "120+"]
+
+# Focus bands for work-tote coverage gap (labels to include)
+coverage_focus_bands: ["60-90", "90-120"]
+
+segment_classification:
+  # Mission IDs that imply work/professional (from mission_taxonomy.yaml)
+  work_professional_missions:
+    - work_tote
+  # Mission IDs that imply tote shape (without work)
+  tote_missions: []
+  # Patterns in segment_label / subcluster_label that imply work_tote
+  work_label_patterns:
+    - structured
+    - professional
+  # Patterns that imply tote (shape only)
+  tote_label_patterns:
+    - tote
+  # Text keyword fallback - only used when BOTH work and tote keywords provided
+  work_text_keywords: []
+  tote_text_keywords: []
