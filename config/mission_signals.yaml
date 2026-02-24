@@ -4,7 +4,7 @@
 
 version: "1.0"
 
-# Spec missions (first 7) - token dictionaries per mission
+# Base missions (13) - token dictionaries per mission
 # Each token adds signal strength when found in product text
 mission_tokens:
   occasion_glam:
@@ -137,6 +137,53 @@ mission_tokens:
       - wallets
       - cardholder
       - small leather
+  convertible_multiway:
+    tokens:
+      - convertible
+      - multiway
+      - removable strap
+      - detachable
+      - crossbody
+      - shoulder
+      - clutch
+  eco_conscious:
+    tokens:
+      - recycled
+      - sustainable
+      - eco
+      - organic
+      - recycled poly
+      - recycled leather
+      - ethical
+  gym_active:
+    tokens:
+      - gym
+      - workout
+      - athletic
+      - sport
+      - fitness
+      - active
+  oversized_carryall:
+    tokens:
+      - oversized
+      - carryall
+      - large
+      - roomy
+      - spacious
+  statement_fashion:
+    tokens:
+      - statement
+      - bold
+      - trendy
+      - fashion
+      - designer
+  value_mass:
+    tokens:
+      - value
+      - affordable
+      - essential
+      - basic
+      - everyday
 
 # Priority rules: when conditions match, apply override or boost
 # Rule types: category_override (mission wins), boost (add strong signal), dual_mission (add secondary)
